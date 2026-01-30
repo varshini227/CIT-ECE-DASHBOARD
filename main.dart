@@ -1,11 +1,9 @@
-import 'dart:convert';
+
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:csv/csv.dart';
 import 'firebase_options.dart';
 import 'package:fl_chart/fl_chart.dart'; // Required for the graph
 
@@ -231,6 +229,7 @@ class StudentDashboard extends StatefulWidget {
 class _StudentDashboardState extends State<StudentDashboard> {
   String viewYear = "First Year";
 
+  // Helper function to sum points based on current year limits
   int _sum(Map<String, dynamic> d, Map<String, int> l) {
     int t = 0;
     l.forEach((k, _) => t += (d[k] ?? 0) as int);
@@ -240,216 +239,139 @@ class _StudentDashboardState extends State<StudentDashboard> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
+      // 1. Get ALL students to find the batch topper (reference)
       stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
       builder: (context, snapAll) {
         return StreamBuilder<DocumentSnapshot>(
+          // 2. Get the specific logged-in student's data
           stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData || !snapAll.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            
             var d = snapshot.data!.data() as Map<String, dynamic>;
             
+            // Current student's individual totals
             int y1 = _sum(d, year1Limits);
             int y2 = _sum(d, year2Limits);
             int y3 = _sum(d, year3Limits);
 
-            int studentTotal = y1 + y2 + y3; 
-            int currentEarned = (viewYear == "First Year") ? y1 : (viewYear == "Second Year" ? y1 + y2 : y1 + y2 + y3);
-            int currentMax = (viewYear == "First Year") ? 40 : (viewYear == "Second Year" ? 80 : 120);
-
-            double batchHighest = 0;
-            double yearHighest = 0;
-            Map<String, int> activeLimits = (viewYear == "First Year") ? year1Limits : (viewYear == "Second Year" ? year2Limits : year3Limits);
+            // --- FIX START: DECLARE AND CALCULATE TOPPERS ---
+            double topperY1 = 0;   // III Sem Selection Reference
+            double topperY12 = 0;  // IV Sem Selection Reference
+            double topperY123 = 0; // VI Sem Selection Reference
+            double topperGrand = 0;// VII Sem Strategic Reference
 
             for (var doc in snapAll.data!.docs) {
               var sd = doc.data() as Map<String, dynamic>;
-              int st = _sum(sd, year1Limits) + _sum(sd, year2Limits) + _sum(sd, year3Limits);
-              int yt = _sum(sd, activeLimits);
-              if (st > batchHighest) batchHighest = st.toDouble();
-              if (yt > yearHighest) yearHighest = yt.toDouble();
+              int s1 = _sum(sd, year1Limits);
+              int s2 = _sum(sd, year2Limits);
+              int s3 = _sum(sd, year3Limits);
+
+              if (s1 > topperY1) topperY1 = s1.toDouble();
+              if ((s1 + s2) > topperY12) topperY12 = (s1 + s2).toDouble();
+              if ((s1 + s2 + s3) > topperY123) topperY123 = (s1 + s2 + s3).toDouble();
+              if ((s1 + s2 + s3) > topperGrand) topperGrand = (s1 + s2 + s3).toDouble();
+            }
+            // --- FIX END ---
+
+            // Configuration based on active selection from your framework
+            Map<String, double> roleThresholds = {};
+            double currentRef = 0;
+            int studentScore = 0;
+            String headerTitle = "";
+
+            if (viewYear == "First Year") {
+              roleThresholds = {
+                'Class Representative': 0.4, 'CoE Student Volunteer': 0.4,
+                'Event Lead (II Year)': 0.4, 'Doc & Report Lead': 0.4,
+                'Digital Media Lead': 0.4, 'Alumni Relations Coord': 0.4,
+                'Coding Club Secretary': 0.6, 'Placement Coord (Training)': 0.6,
+              };
+              currentRef = topperY1; studentScore = y1; headerTitle = "III SEMESTER ELIGIBILITY";
+            } else if (viewYear == "Second Year") {
+              roleThresholds = {
+                'Class Representative': 0.4, 'Class Committee Member': 0.4,
+                'CoE Student Volunteer (IoT)': 0.6, 'IV Coordinator': 0.6,
+                'Placement Coordinator': 0.6, 'Digital Media Lead': 0.6,
+              };
+              currentRef = topperY12; studentScore = y1 + y2; headerTitle = "IV SEMESTER SELECTION";
+            } else {
+              roleThresholds = {
+                'Chief Student Coordinator': 0.8, 'Hackathon Secretary': 0.8,
+                'Placement Coordinator (Core)': 0.7, 'CoE Student Lead': 0.7,
+                'Chief Placement Coordinator (Strategic)': 0.8,
+              };
+              currentRef = topperGrand; studentScore = y1 + y2 + y3; headerTitle = "FINAL YEAR STRATEGIC ROLES";
             }
 
-            bool isYearEligible = yearHighest > 0 && (_sum(d, activeLimits) >= (yearHighest * 0.5));
-            
-            // Leadership Roles: Calculate top 50% eligibility for First Year and Second Year
-            List<Map<String, dynamic>> allStudentsScores = [];
-            int roleCalculationScore = 0;
-            String roleTitle = "";
-            List<String> activeRoles = [];
-            
-            if (viewYear == "First Year") {
-              for (var doc in snapAll.data!.docs) {
-                var sd = doc.data() as Map<String, dynamic>;
-                int y1Score = _sum(sd, year1Limits);
-                allStudentsScores.add({'name': sd['name'] ?? 'Unknown', 'score': y1Score});
-              }
-              allStudentsScores.sort((a, b) => b['score'].compareTo(a['score']));
-              roleCalculationScore = y1;
-              roleTitle = "III SEMESTER LEADERSHIP ROLES";
-              activeRoles = year1Roles;
-            } else if (viewYear == "Second Year") {
-              for (var doc in snapAll.data!.docs) {
-                var sd = doc.data() as Map<String, dynamic>;
-                int cumulativeScore = _sum(sd, year1Limits) + _sum(sd, year2Limits);
-                allStudentsScores.add({'name': sd['name'] ?? 'Unknown', 'score': cumulativeScore});
-              }
-              allStudentsScores.sort((a, b) => b['score'].compareTo(a['score']));
-              roleCalculationScore = y1 + y2;
-              roleTitle = "IV SEMESTER LEADERSHIP ROLES";
-              activeRoles = year2Roles;
-            }
-            
-            
-            int eligibleCount = (allStudentsScores.length / 2).ceil();
-            int currentStudentRank = allStudentsScores.indexWhere((s) => s['name'] == (d['name'] ?? '')) + 1;
-            bool isLeadershipEligible = (viewYear == "First Year" || viewYear == "Second Year") && currentStudentRank > 0 && currentStudentRank <= eligibleCount;
-            int gapToEligibility = isLeadershipEligible ? 0 : (eligibleCount > 0 ? allStudentsScores[eligibleCount - 1]['score'] - roleCalculationScore : 0);
+            Map<String, int> activeLimits = (viewYear == "First Year") ? year1Limits : (viewYear == "Second Year" ? year2Limits : year3Limits);
 
             return Scaffold(
-              appBar: AppBar(title: Text("$viewYear Analysis"), actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))]),
+              appBar: AppBar(title: Text("$viewYear Analysis"), actions: [
+                IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))
+              ]),
               body: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  Text("Welcome, ${d['name'] ?? 'Student'}!", textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text("Welcome, ${d['name']}!", textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 20),
+                  
                   SegmentedButton<String>(
-                    segments: const [ButtonSegment(value: "First Year", label: Text("Y1")), ButtonSegment(value: "Second Year", label: Text("Y2")), ButtonSegment(value: "Third Year", label: Text("Y3"))],
+                    segments: const [
+                      ButtonSegment(value: "First Year", label: Text("Y1")),
+                      ButtonSegment(value: "Second Year", label: Text("Y2")),
+                      ButtonSegment(value: "Third Year", label: Text("Y3")),
+                    ],
                     selected: {viewYear},
                     onSelectionChanged: (s) => setState(() => viewYear = s.first),
                   ),
                   const SizedBox(height: 20),
-                  Card(
-                    color: isYearEligible ? Colors.green : Colors.red,
-                    child: Padding(
-                      padding: const EdgeInsets.all(15),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(isYearEligible ? Icons.check_circle : Icons.error, color: Colors.white),
-                          const SizedBox(width: 10),
-                          Text("$viewYear Status: ${isYearEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
+
+                  Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                  Text("Batch Topper Reference: ${currentRef.toInt()} EP", style: const TextStyle(fontSize: 11, color: Colors.grey)),
                   const SizedBox(height: 10),
-                  Card(color: Colors.blue, child: Padding(padding: const EdgeInsets.all(20), child: Column(children: [
-                    const Text("Cumulative Earned Points", style: TextStyle(color: Colors.white)),
-                    Text("$currentEarned / $currentMax", style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-                  ]))),
-                  const Divider(height: 40),
-                  if (viewYear == "First Year" || viewYear == "Second Year") ...[
-                    Text(roleTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blue)),
-                    const SizedBox(height: 10),
-                    Card(
-                      color: isLeadershipEligible ? Colors.green.shade50 : Colors.orange.shade50,
-                      child: Padding(
-                        padding: const EdgeInsets.all(15),
-                        child: Column(
+
+                  ...roleThresholds.entries.map((role) {
+                    double target = currentRef * role.value;
+                    bool isOk = studentScore >= target;
+                    double gap = target - studentScore;
+
+                    return Card(
+                      color: isOk ? Colors.green.shade50 : Colors.orange.shade50,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(isOk ? Icons.stars : Icons.lock_outline, color: isOk ? Colors.green : Colors.orange),
+                        title: Text(role.key, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      isLeadershipEligible ? "✅ ELIGIBLE FOR ROLES" : "❌ NOT ELIGIBLE",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: isLeadershipEligible ? Colors.green.shade700 : Colors.orange.shade700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      "Rank: $currentStudentRank / ${allStudentsScores.length}",
-                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                    ),
-                                  ],
-                                ),
-                                if (!isLeadershipEligible && gapToEligibility >= 0)
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.shade100,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        const Text("Points Needed", style: TextStyle(fontSize: 11, color: Colors.grey)),
-                                        Text("+$gapToEligibility EP", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red.shade700)),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            if (isLeadershipEligible) ...[
-                              const SizedBox(height: 12),
-                              Divider(color: Colors.green.shade300),
-                              const SizedBox(height: 8),
-                              Text(
-                                "Available Positions: ${activeRoles.length} roles for top ${eligibleCount} students",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 12, color: Colors.green.shade700, fontWeight: FontWeight.w600),
-                              ),
-                            ],
+                            Text("Criteria: ${(role.value * 100).toInt()}% of Highest"),
+                            if (!isOk) Text("Need: ${gap.toStringAsFixed(1)} EP more", style: const TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
                           ],
                         ),
+                        trailing: Text(isOk ? "QUALIFIED" : "LOCKED", style: TextStyle(color: isOk ? Colors.green : Colors.grey, fontWeight: FontWeight.bold, fontSize: 10)),
                       ),
-                    ),
-                    const SizedBox(height: 15),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.blue.shade300),
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.blue.shade50,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Available Roles:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                          const SizedBox(height: 8),
-                          ...activeRoles.map((role) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              children: [
-                                Icon(Icons.star, size: 16, color: Colors.amber),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(role, style: const TextStyle(fontSize: 11))),
-                              ],
-                            ),
-                          )),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (viewYear == "Third Year") ...[
-                    const Divider(height: 40),
-                    const Text("6th Sem Role Eligibility (80% / 70%):", style: TextStyle(fontWeight: FontWeight.bold)), 
-                    _eligibilityTile("Chief Coordinator (80%)", studentTotal >= (batchHighest * 0.8)), 
-                    _eligibilityTile("Placement Lead (70%)", studentTotal >= (batchHighest * 0.7)), 
-                  ],
+                    );
+                  }).toList(),
+
                   const Divider(height: 40),
-                  ...activeLimits.entries.map((e) => ListTile(title: Text(e.key.replaceAll('_', ' ').toUpperCase()), trailing: Text("${d[e.key] ?? 0} / ${e.value}"))),
+                  const Text("YEARLY ACTIVITY BREAKDOWN", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ...activeLimits.entries.map((e) => ListTile(
+                    dense: true,
+                    title: Text(e.key.replaceAll('_', ' ').toUpperCase()),
+                    trailing: Text("${d[e.key] ?? 0} / ${e.value}"),
+                  )),
                 ],
               ),
             );
           },
         );
-      }
+      },
     );
   }
-
-  Widget _eligibilityTile(String label, bool isOk) => ListTile(
-    leading: Icon(isOk ? Icons.check_circle : Icons.cancel, color: isOk ? Colors.green : Colors.red),
-    title: Text(label),
-    trailing: Text(isOk ? "ELIGIBLE" : "NOT ELIGIBLE", style: TextStyle(color: isOk ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
-  );
 }
 
-// --- ADMIN DASHBOARD ---
+// --- ADMIN DASHBOARD //---
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
 
@@ -458,10 +380,8 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  // NEW: Year Filter State
   String filterYear = "Cumulative (Y1-Y3)";
 
-  // Helper to calculate points based on selected filter
   int _calculatePoints(Map<String, dynamic> d, String filter) {
     int total = 0;
     if (filter == "First Year" || filter == "Cumulative (Y1-Y3)") {
@@ -478,7 +398,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine max points based on filter for the graph and percentage (maintain cumulative logic)
     double maxPoints = filterYear == "First Year" ? 40 : (filterYear == "Second Year" ? 80 : 120);
 
     return Scaffold(
@@ -492,22 +411,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // Maintains original document order from Firestore/CSV import
         stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
           double s1Sum = 0, s2Sum = 0;
           int s1Count = 0, s2Count = 0;
-          
           String s1BestName = "N/A";
           int s1BestScore = -1;
           String s2BestName = "N/A";
           int s2BestScore = -1;
 
+          List<Map<String, dynamic>> allStudents = [];
+          double batchHighest = 0;
+
           for (var doc in snapshot.data!.docs) {
             var data = doc.data() as Map<String, dynamic>;
             int score = _calculatePoints(data, filterYear);
             String name = data['name'] ?? "Unknown";
+
+            if (score > batchHighest) batchHighest = score.toDouble();
+
+            allStudents.add({
+              'name': name,
+              'regNo': data['regNo'] ?? "N/A",
+              'score': score,
+              'section': data['section'] ?? "Sec 1",
+            });
 
             if (data['section'] == "Sec 1") {
               s1Sum += score;
@@ -524,10 +455,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
           double s2Avg = s2Count > 0 ? s2Sum / s2Count : 0;
           double overallPercent = ((s1Avg + s2Avg) / 2) / maxPoints * 100;
 
+          // Define Eligibility Buckets based on framework percentages
+          var elite80 = allStudents.where((s) => s['score'] >= (batchHighest * 0.8) && batchHighest > 0).toList();
+          var strategic70 = allStudents.where((s) => s['score'] >= (batchHighest * 0.7) && s['score'] < (batchHighest * 0.8)).toList();
+          var functional60 = allStudents.where((s) => s['score'] >= (batchHighest * 0.6) && s['score'] < (batchHighest * 0.7)).toList();
+          var standard40 = allStudents.where((s) => s['score'] >= (batchHighest * 0.4) && s['score'] < (batchHighest * 0.6)).toList();
+
+          // Segregate for Section-wise tables (Maintains order within each section)
+          var sec1List = allStudents.where((s) => s['section'] == "Sec 1").toList();
+          var sec2List = allStudents.where((s) => s['section'] == "Sec 2").toList();
+
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              // YEAR FILTER DROPDOWN
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(border: Border.all(color: Colors.blue), borderRadius: BorderRadius.circular(8)),
@@ -542,7 +482,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
               const SizedBox(height: 20),
 
-              // OVERALL PERCENTAGE CARD
               Card(
                 color: Colors.blue.shade900,
                 child: Padding(
@@ -555,21 +494,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
               const SizedBox(height: 20),
 
-              // BEST PERFORMERS ROW
               Row(
                 children: [
-                  Expanded(
-                    child: _performerCard("SEC 1 TOPPER", s1BestName, s1BestScore),
-                  ),
+                  Expanded(child: _performerCard("SEC 1 TOPPER", s1BestName, s1BestScore)),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: _performerCard("SEC 2 TOPPER", s2BestName, s2BestScore),
-                  ),
+                  Expanded(child: _performerCard("SEC 2 TOPPER", s2BestName, s2BestScore)),
                 ],
               ),
               const SizedBox(height: 30),
 
-              // BAR GRAPH
               const Text("SECTION COMPARISON", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 20),
               Card(
@@ -577,126 +510,81 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: SizedBox(
-                    height: 280,
+                    height: 200,
                     child: BarChart(
                       BarChartData(
                         maxY: maxPoints,
                         barGroups: [
-                          BarChartGroupData(
-                            x: 0,
-                            barRods: [
-                              BarChartRodData(
-                                toY: s1Avg,
-                                color: Colors.blue.shade600,
-                                width: 50,
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                              ),
-                            ],
-                          ),
-                          BarChartGroupData(
-                            x: 1,
-                            barRods: [
-                              BarChartRodData(
-                                toY: s2Avg,
-                                color: Colors.orange.shade600,
-                                width: 50,
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                              ),
-                            ],
-                          ),
+                          BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1Avg, color: Colors.blue.shade600, width: 40)]),
+                          BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2Avg, color: Colors.orange.shade600, width: 40)]),
                         ],
                         titlesData: FlTitlesData(
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              getTitlesWidget: (v, m) => Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  v == 0 ? "SECTION 1\n(${s1Count} students)" : "SECTION 2\n(${s2Count} students)",
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                                ),
-                              ),
-                            ),
-                          ),
-                          leftTitles: AxisTitles(
-                            axisNameWidget: const Text("Total Points", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            axisNameSize: 30,
-                            sideTitles: const SideTitles(showTitles: true, reservedSize: 40),
-                          ),
+                          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2"))),
+                          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30)),
                           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        ),
-                        gridData: FlGridData(
-                          show: true,
-                          drawVerticalLine: false,
-                          horizontalInterval: maxPoints / 4,
-                          getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade300, strokeWidth: 1),
-                        ),
-                        borderData: FlBorderData(
-                          show: true,
-                          border: Border(
-                            bottom: BorderSide(color: Colors.grey.shade400, width: 1),
-                            left: BorderSide(color: Colors.grey.shade400, width: 1),
-                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
               
-              // SECTION COMPARISON DETAILS
-              Card(
-                color: s1Avg > s2Avg ? Colors.blue.shade50 : Colors.orange.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          Column(
-                            children: [
-                              const Text("Section 1 Average", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                              Text("${s1Avg.toStringAsFixed(2)} pts", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue.shade600)),
-                            ],
-                          ),
-                          Container(
-                            width: 1,
-                            height: 60,
-                            color: Colors.grey.shade300,
-                          ),
-                          Column(
-                            children: [
-                              const Text("Section 2 Average", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                              Text("${s2Avg.toStringAsFixed(2)} pts", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange.shade600)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Divider(color: Colors.grey.shade400),
-                      const SizedBox(height: 8),
-                      Text(
-                        s1Avg > s2Avg
-                            ? "📊 Section 1 is performing better by ${(s1Avg - s2Avg).toStringAsFixed(2)} points"
-                            : "📊 Section 2 is performing better by ${(s2Avg - s1Avg).toStringAsFixed(2)} points",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: s1Avg > s2Avg ? Colors.blue.shade700 : Colors.orange.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              const Divider(height: 50),
+              const Text("ROLE ELIGIBILITY VERIFICATION", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
+              const SizedBox(height: 10),
+              _eligibilityGroup("ELITE TIER (>=80%)", "Qualified for Chief Roles", elite80, Colors.amber),
+              _eligibilityGroup("STRATEGIC TIER (>=70%)", "Qualified for Placement Leads", strategic70, Colors.deepPurple),
+              _eligibilityGroup("FUNCTIONAL TIER (>=60%)", "Qualified for Club/CoE Leads", functional60, Colors.blue),
+              _eligibilityGroup("FOUNDATION TIER (>=40%)", "Qualified for Class Reps", standard40, Colors.green),
+
+              const Divider(height: 50),
+              
+              // NEW SECTION: SECTION 1 ORDERED TABLE
+              const Text("SECTION 1 MARKS (CSV ORDER)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
+              const SizedBox(height: 10),
+              _buildOrderedTable(sec1List, batchHighest),
+
+              const SizedBox(height: 40),
+
+              // NEW SECTION: SECTION 2 ORDERED TABLE
+              const Text("SECTION 2 MARKS (CSV ORDER)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
+              const SizedBox(height: 10),
+              _buildOrderedTable(sec2List, batchHighest),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildOrderedTable(List<Map<String, dynamic>> students, double topper) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        border: TableBorder.all(color: Colors.grey.shade300),
+        columns: const [
+          DataColumn(label: Text("Name")),
+          DataColumn(label: Text("Total EP")),
+          DataColumn(label: Text("%")),
+          DataColumn(label: Text("Status")),
+        ],
+        rows: students.map((s) {
+          double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
+          return DataRow(cells: [
+            DataCell(Text(s['name'], style: const TextStyle(fontSize: 12))),
+            DataCell(Text("${s['score']}")),
+            DataCell(Text("${p.toStringAsFixed(1)}%")),
+            DataCell(Text(
+              p >= 40.0 ? "ELIGIBLE" : "NOT ELIGIBLE",
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: p >= 40.0 ? Colors.green : Colors.red,
+              ),
+            )),
+          ]);
+        }).toList(),
       ),
     );
   }
@@ -712,8 +600,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ]),
     );
   }
-}
 
+  Widget _eligibilityGroup(String title, String subtitle, List<Map<String, dynamic>> students, Color color) {
+    return ExpansionTile(
+      leading: Icon(Icons.verified_user, color: color),
+      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11)),
+      children: students.isEmpty 
+        ? [const ListTile(title: Text("No students in this tier", style: TextStyle(fontSize: 12, color: Colors.grey)))]
+        : students.map((s) => ListTile(
+            title: Text(s['name'], style: const TextStyle(fontSize: 13)),
+            subtitle: Text("Reg: ${s['regNo']} | ${s['section']}", style: const TextStyle(fontSize: 11)),
+            trailing: Text("${s['score']} EP", style: const TextStyle(fontWeight: FontWeight.bold)),
+          )).toList(),
+    );
+  }
+}
 // --- STAFF DASHBOARD ---
 class StaffDashboard extends StatefulWidget {
   const StaffDashboard({super.key});
@@ -725,21 +627,45 @@ class _StaffDashboardState extends State<StaffDashboard> {
   final _reg = TextEditingController();
   String activeYear = "First Year";
   final Map<String, TextEditingController> _ctrls = {};
+  bool _isSaving = false;
 
   @override
-  void initState() { super.initState(); _initControllers(); }
-  void _initControllers() { _ctrls.clear(); _getLimits().forEach((k, _) => _ctrls[k] = TextEditingController()); }
-  Map<String, int> _getLimits() => (activeYear == "First Year") ? year1Limits : (activeYear == "Second Year" ? year2Limits : year3Limits);
+  void initState() {
+    super.initState();
+    _initControllers();
+  }
 
+  void _initControllers() {
+    _ctrls.clear();
+    _getLimits().forEach((k, _) => _ctrls[k] = TextEditingController());
+  }
+
+  Map<String, int> _getLimits() => (activeYear == "First Year")
+      ? year1Limits
+      : (activeYear == "Second Year" ? year2Limits : year3Limits);
+
+  // Core Point Calculation Logic
+  int _calculateCumulativePoints(Map<String, dynamic> d, String year) {
+    int total = 0;
+    year1Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
+    if (year != "First Year") year2Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
+    if (year == "Third Year") year3Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
+    return total;
+  }
+
+  // --- MARKS ENTRY (WRITE ACCESS) ---
   void _search() async {
     var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
     if (q.docs.isNotEmpty) {
       var data = q.docs.first.data();
       setState(() => _ctrls.forEach((k, v) => v.text = (data[k] ?? 0).toString()));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student not found")));
     }
   }
 
   void _update() async {
+    setState(() => _isSaving = true);
     Map<String, int> updates = {};
     Map<String, int> currentLimits = _getLimits();
     bool isInvalid = false;
@@ -747,27 +673,117 @@ class _StaffDashboardState extends State<StaffDashboard> {
 
     _ctrls.forEach((k, v) {
       int val = int.tryParse(v.text) ?? 0;
-      int maxAllowed = currentLimits[k] ?? 0;
-      if (val > maxAllowed) { isInvalid = true; errorField = k.toUpperCase(); }
+      if (val > (currentLimits[k] ?? 0)) { isInvalid = true; errorField = k.toUpperCase(); }
       updates[k] = val;
     });
 
     if (isInvalid) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds limit!"), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds point limit!"), backgroundColor: Colors.red));
+      setState(() => _isSaving = false);
       return;
     }
 
     var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
     if (q.docs.isNotEmpty) {
       await q.docs.first.reference.update(updates);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated!")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated!")));
     }
+    setState(() => _isSaving = false);
+  }
+
+  // --- VERIFICATION REPORT (READ ACCESS) ---
+  void _showVerificationReport() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        expand: false,
+        builder: (_, controller) => StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+            double batchHighest = 0;
+            // 1. Identify topper based on cumulative selection
+            for (var doc in snapshot.data!.docs) {
+              int s = _calculateCumulativePoints(doc.data() as Map<String, dynamic>, activeYear);
+              if (s > batchHighest) batchHighest = s.toDouble();
+            }
+
+            // 2. Process data in Firestore/CSV order
+            List<Map<String, dynamic>> students = snapshot.data!.docs.map((doc) {
+              var d = doc.data() as Map<String, dynamic>;
+              return {
+                'name': d['name'] ?? 'N/A',
+                'section': d['section'] ?? 'Sec 1',
+                'score': _calculateCumulativePoints(d, activeYear),
+              };
+            }).toList();
+
+            return ListView(
+              controller: controller,
+              padding: const EdgeInsets.all(20),
+              children: [
+                Text("$activeYear VERIFICATION TABLE", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+                Text("Reference Topper: ${batchHighest.toInt()} EP", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                const Divider(height: 30),
+                _buildTable("SECTION 1", students.where((s) => s['section'] == "Sec 1").toList(), batchHighest),
+                const SizedBox(height: 30),
+                _buildTable("SECTION 2", students.where((s) => s['section'] == "Sec 2").toList(), batchHighest),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTable(String title, List<Map<String, dynamic>> data, double topper) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+      const SizedBox(height: 10),
+      Table(
+        border: TableBorder.all(color: Colors.grey.shade300),
+        columnWidths: const {
+          0: FlexColumnWidth(2.5), 1: FlexColumnWidth(0.8), 2: FlexColumnWidth(1), 3: FlexColumnWidth(1.5)
+        },
+        children: [
+          TableRow(
+            decoration: BoxDecoration(color: Colors.blue.shade50),
+            children: const [
+              Padding(padding: EdgeInsets.all(8), child: Text("Name", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+              Padding(padding: EdgeInsets.all(8), child: Text("EP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+              Padding(padding: EdgeInsets.all(8), child: Text("%", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+              Padding(padding: EdgeInsets.all(8), child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+            ],
+          ),
+          ...data.map((s) {
+            double percentage = topper > 0 ? (s['score'] / topper) * 100 : 0;
+            bool isEligible = percentage >= 40.0; // Base leadership threshold
+
+            return TableRow(children: [
+              Padding(padding: EdgeInsets.all(8), child: Text(s['name'], style: const TextStyle(fontSize: 10))),
+              Padding(padding: EdgeInsets.all(8), child: Text("${s['score']}", style: const TextStyle(fontSize: 10))),
+              Padding(padding: EdgeInsets.all(8), child: Text("${percentage.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 10))),
+              Padding(padding: const EdgeInsets.all(8), child: Text(
+                isEligible ? "ELIGIBLE" : "NOT ELIGIBLE",
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isEligible ? Colors.green.shade700 : Colors.red.shade700),
+              )),
+            ]);
+          }),
+        ],
+      ),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Staff Portal"), actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))]),
+      appBar: AppBar(title: const Text("CIT ECE Staff Portal"), actions: [
+        IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))
+      ]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
@@ -777,14 +793,16 @@ class _StaffDashboardState extends State<StaffDashboard> {
             onChanged: (v) => setState(() { activeYear = v!; _initControllers(); }),
           ),
           const SizedBox(height: 10),
-          TextField(controller: _reg, decoration: InputDecoration(labelText: "Student Reg No", suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: _search), border: const OutlineInputBorder())),
+          SizedBox(width: double.infinity, height: 50, child: OutlinedButton.icon(onPressed: _showVerificationReport, icon: const Icon(Icons.analytics_outlined), label: const Text("GENERATE VERIFICATION TABLE"))),
           const Divider(height: 40),
-          ..._ctrls.entries.map((e) {
-            int max = _getLimits()[e.key] ?? 0;
-            return Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: e.value, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: "${e.key.toUpperCase()} (Max: $max)", border: const OutlineInputBorder())));
-          }),
+          TextField(controller: _reg, decoration: InputDecoration(labelText: "Student Reg No", suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: _search), border: const OutlineInputBorder())),
           const SizedBox(height: 20),
-          SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _update, child: const Text("UPDATE MARKS"))),
+          ..._ctrls.entries.map((e) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextField(controller: e.value, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: "${e.key.toUpperCase()} (Max: ${_getLimits()[e.key]})", border: const OutlineInputBorder())),
+          )),
+          const SizedBox(height: 20),
+          SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isSaving ? null : _update, child: _isSaving ? const CircularProgressIndicator() : const Text("SAVE UPDATES"))),
         ]),
       ),
     );
