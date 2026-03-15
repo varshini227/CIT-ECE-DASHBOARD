@@ -1,71 +1,124 @@
-
-
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'firebase_options.dart';
-import 'package:fl_chart/fl_chart.dart'; // Required for the graph
+import 'package:fl_chart/fl_chart.dart';
+import 'splash_screen.dart'; 
+import 'firebase_options.dart'; // Add this line at the top
 
 void main() async {
+  // 1. Ensure the engine is ready
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  
+  try {
+    // 2. Initialize Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint("Firebase init error: $e");
+  }
+
+  // 3. Start the App
   runApp(const MyApp());
 }
 
+// --- MAIN APP ENTRY ---
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'CIT Dept ECE Dashboard',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: const LoginPage(),
+      title: ' Engagement Pulse ',
+      theme: ThemeData(
+        useMaterial3: true,
+        // Branding colors derived from your ECE logo
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF0077B6), // Tech Blue
+          primary: const Color(0xFF001D3D),   // Deep Navy from logo background
+          secondary: const Color(0xFF00F5D4), // Electric Teal from circuit traces
+          surface: Colors.white,
+        ),
+        
+        // Customizing AppBars to match the metallic/navy logo style
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF001D3D), 
+          foregroundColor: Color(0xFFF3E8F1), // Off-white/Silver from logo text
+          centerTitle: true,
+          elevation: 5,
+        ),
+
+        // FIXED: Changed CardTheme to CardThemeData to resolve diagnostic error
+        cardTheme: CardThemeData(
+          elevation: 4,
+          shadowColor: const Color(0xFF0077B6).withValues(alpha: 0.2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        ),
+
+        // Applying the theme to the SegmentedButtons/Tabs
+        segmentedButtonTheme: SegmentedButtonThemeData(
+          style: SegmentedButton.styleFrom(
+            selectedBackgroundColor: const Color(0xFF0077B6),
+            selectedForegroundColor: Colors.white,
+          ),
+        ),
+      ),
+      // This will now find the SplashScreen class correctly
+      home: const SplashScreen(), 
     );
   }
 }
 
-// --- EVALUATION POINT LIMITS ---
-final Map<String, int> year1Limits = {
+//--- EVALUATION POINT LIMITS BY SEMESTER ---
+
+
+
+final Map<String, int> sem2Limits = {
   'workshop_pts': 4, 'nptel_pts': 6, 'volProject_pts': 6, 'classRep_pts': 4, 
   'linkedin_pts': 4, 'discipline_pts': 6, 'symposium_pts': 6, 'higherStudies_pts': 2, 'noArrears_pts': 2
 }; 
 
-final Map<String, int> year2Limits = {
-  'mini_project_pts': 10, 'leadership_pts': 10, 'network_exposure_pts': 10, 
-  'hackathon_prize_pts': 8, 'no_arrears_y2_pts': 2
+final Map<String, int> sem3Limits = {
+  'mini_project_hackathon_pts': 10,
+  'leadership_club_vol_pts': 10,
+  'network_exposure_pts': 10,
+  'hackathon_prize': 8,
+  'no_arrears_pts': 2
 }; 
 
-final Map<String, int> year3Limits = {
-  'internship_pts': 5, 'coe_project_pts': 5, 'bootcamp_org_pts': 5, 'mock_interview_org_pts': 5, 
-  'expert_connections_pts': 5, 'alumni_testimonials_pts': 5, 'no_arrears_y3_pts': 5, 'conf_publication_pts': 5
+final Map<String, int> sem4Limits = {
+  'coe_research_project_pts': 10,
+  'coe_coord_leadership_pts': 10,
+  'industry_alumni_network_pts': 10,
+  'tech_blog_pts': 5,
+  'no_arrears_y2_pts': 5
 }; 
 
-// --- LEADERSHIP ROLES (III SEMESTER) ---
-final List<String> year1Roles = [
-  'Class Representative',
-  'CoE Student Volunteer',
-  'Event Lead (II Year)',
-  'Documentation & Report Lead',
-  'Digital Media Lead',
-  'Alumni Relations Coordinator',
-  'Coding Club Secretary',
-  'Placement Coordinator (Training)',
-];
+final Map<String, int> sem5Limits = {
+  'internship_training_pts': 5, 
+  'coe_industry_project_pts': 5, 
+  'bootcamp_mentoring_pts': 5, 
+  'mock_interview_org_pts': 5, 
+  'expert_conf_pts': 5, 
+  'alumni_testimonials_pts': 5,
+  'no_arrears_y3_pts': 5, 
+  'conf_publication_pts': 5
+};
 
-// --- LEADERSHIP ROLES (IV SEMESTER - 4th SEM) ---
-final List<String> year2Roles = [
-  'Class Representative',
-  'Class Committee Member',
-  'CoE Student Volunteer (IoT / Coding Club In-charge / Secretary)',
-  'Event Lead (Department / Symposium with Seniors)',
-  'IV Coordinator',
-  'Placement Coordinator – Training Programs',
-  'Alumni Relations Coordinator',
-  'Documentation & Report Lead',
-  'Digital Media Lead (IoT lab & 5G centre LinkedIn page maintenance)',
-];
+final Map<String, int> sem6Limits = {
+  'placement_certification_pts': 5,
+  'system_integration_pts': 5,
+  'training_coord_pts': 5,
+  'leadership_exec_pts': 5,
+  'expert_guest_lecture_pts': 5,
+  'alumni_referral_pts': 5,
+  'placement_deliverables_pts': 5,
+  'no_arrears_y4_pts': 5
+};
+final Map<String, int> sem7Limits = {}; // 7th sem = cumulative only
 
 // --- LOGIN PAGE ---
 class LoginPage extends StatefulWidget {
@@ -119,260 +172,482 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   @override
+ 
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.purple.shade900,
-              Colors.purple.shade600,
-              Colors.deepPurple.shade400,
-            ],
-          ),
-        ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(30),
-            child: Column(children: [
-              const Icon(Icons.school, size: 80, color: Colors.white),
-              const Text("CIT ECE LOGIN", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white)),
-              const SizedBox(height: 40),
-              TextField(
-                controller: _email,
-                decoration: InputDecoration(
-                  labelText: "Email ID",
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  prefixIcon: const Icon(Icons.email, color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.white, width: 2),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
+      // We use Stack to place the image behind your content
+      body: Stack(
+        children: [
+          // --- LAYER 1: THE BACKGROUND IMAGE ---
+          Container(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                // Ensure this path matches your pubspec.yaml exactly
+                image: AssetImage('assets/images/processor.JPEG'), 
+                fit: BoxFit.cover,
               ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _pass,
-                obscureText: _obscurePassword,
-                decoration: InputDecoration(
-                  labelText: "Password",
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  prefixIcon: const Icon(Icons.lock, color: Colors.white70),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.white70,
+            ),
+          ),
+        
+
+ 
+
+          // --- LAYER 2: THE GRADIENT OVERLAY ---
+          // Added .withValues(alpha: 0.7) so the photo is visible through the colors
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF001D3D).withValues(alpha: 0.8), 
+                  const Color(0xFF003566).withValues(alpha: 0.7),
+                  const Color(0xFF0077B6).withValues(alpha: 0.6), 
+                ],
+              ),
+            ),
+          ),
+
+          // --- LAYER 3: YOUR EXISTING FORMAT ---
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(30),
+              child: Column(children: [
+                const Icon(Icons.school, size: 80, color: Colors.white),
+                const Text("Welcome to Engagement Pulse",
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white)),
+                const SizedBox(height: 40),
+                TextField(
+                  controller: _email,
+                  decoration: InputDecoration(
+                    labelText: "Email ID",
+                    labelStyle: const TextStyle(color: Color.fromARGB(255, 255, 255, 255)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    prefixIcon: const Icon(Icons.email, color: Color.fromARGB(225, 255, 255, 255)),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.3),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
                     ),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: Colors.white, width: 2),
+                    ),
                   ),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.white, width: 2),
-                  ),
+                  style: const TextStyle(color: Colors.white),
                 ),
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 30),
-              _loading
-                  ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white))
-                  : Column(children: [
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _login,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _pass,
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: "Password",
+                    labelStyle: const TextStyle(color: Color.fromARGB(255, 255, 255, 255)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    prefixIcon: const Icon(Icons.lock, color: Color.fromARGB(249, 255, 255, 255)),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.white70,
+                      ),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.1),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: Colors.white, width: 2),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 30),
+                _loading
+                    ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white))
+                    : Column(children: [
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text("LOGIN",
+                                style: TextStyle(color: Color(0xFF001D3D), fontWeight: FontWeight.bold, fontSize: 16)),
                           ),
-                          child: const Text("LOGIN", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16)),
                         ),
-                      ),
-                      TextButton(
-                        onPressed: _resetPassword,
-                        child: const Text("Forgot Password?", style: TextStyle(color: Colors.white70, fontSize: 14)),
-                      ),
-                    ]),
-            ]),
+                        TextButton(
+                          onPressed: _resetPassword,
+                          child: const Text("Forgot Password?",
+                              style: TextStyle(color: Color.fromARGB(255, 255, 255, 255), fontSize: 14)),
+                        ),
+                      ]),
+              ]),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
-}
 
-// --- STUDENT DASHBOARD ---
+}
+//Student Dashboad
 class StudentDashboard extends StatefulWidget {
   final String uid;
   const StudentDashboard({super.key, required this.uid});
+
   @override
   State<StudentDashboard> createState() => _StudentDashboardState();
 }
 
 class _StudentDashboardState extends State<StudentDashboard> {
   String viewYear = "First Year";
+  // --- PLACE THIS CODE INSIDE _StudentDashboardState ---
+Widget _buildInspirationCard() {
+  return Container(
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: const Color(0xFF001D3D), // Matches your professional Navy branding
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Colors.blue.shade300, width: 1),
+    ),
+    child: const Column(
+      children: [
+        Icon(Icons.auto_awesome, color: Colors.amber, size: 28),
+        SizedBox(height: 12),
+        Text(
+          "\"You don’t have to be great to start, but you have to start to be great.\"",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontStyle: FontStyle.italic,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          "— Zig Ziglar",
+          style: TextStyle(
+            color: Color(0xFFF3E8F1), // Metallic Silver from your theme
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+  
+// 1. Define this function inside your _StudentDashboardState class
+Future<void> _logout() async {
+  try {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      // Navigate back to Login and remove all previous screens from the stack
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+        (route) => false,
+      );
+    }
+  } catch (e) {
+    debugPrint("Logout Error: $e");
+  }
+}
 
-  // Helper function to sum points based on current year limits
   int _sum(Map<String, dynamic> d, Map<String, int> l) {
     int t = 0;
-    l.forEach((k, _) => t += (d[k] ?? 0) as int);
+    l.forEach((k, _) {
+      var val = d[k] ?? 0;
+      t += (val is int) ? val : (val as num).toInt();
+    });
     return t;
   }
 
   @override
+  
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      // 1. Get ALL students to find the batch topper (reference)
-      stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'student')
+          .snapshots(),
       builder: (context, snapAll) {
-        return StreamBuilder<DocumentSnapshot>(
-          // 2. Get the specific logged-in student's data
-          stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).snapshots(),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData || !snapAll.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-            
-            var d = snapshot.data!.data() as Map<String, dynamic>;
-            
-            // Current student's individual totals
-            int y1 = _sum(d, year1Limits);
-            int y2 = _sum(d, year2Limits);
-            int y3 = _sum(d, year3Limits);
+        if (!snapAll.hasData) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        
 
-            // --- FIX START: DECLARE AND CALCULATE TOPPERS ---
-            double topperY1 = 0;   // III Sem Selection Reference
-            double topperY12 = 0;  // IV Sem Selection Reference
-            double topperY123 = 0; // VI Sem Selection Reference
-            double topperGrand = 0;// VII Sem Strategic Reference
+        // --- 1. DECLARE ALL VARIABLES FIRST ---
+        double topperS1to2 = 0;
+        double topperS1to3 = 0;
+        double topperS1to4 = 0;
+        double topperS1to5 = 0;
+        double topperGrand = 0;
+        Map<String, dynamic>? myData;
 
-            for (var doc in snapAll.data!.docs) {
-              var sd = doc.data() as Map<String, dynamic>;
-              int s1 = _sum(sd, year1Limits);
-              int s2 = _sum(sd, year2Limits);
-              int s3 = _sum(sd, year3Limits);
+        // --- 2. CALCULATE TOPPERS ---
+        for (var doc in snapAll.data!.docs) {
+          var sd = doc.data() as Map<String, dynamic>;
+          if (doc.id == widget.uid) myData = sd;
 
-              if (s1 > topperY1) topperY1 = s1.toDouble();
-              if ((s1 + s2) > topperY12) topperY12 = (s1 + s2).toDouble();
-              if ((s1 + s2 + s3) > topperY123) topperY123 = (s1 + s2 + s3).toDouble();
-              if ((s1 + s2 + s3) > topperGrand) topperGrand = (s1 + s2 + s3).toDouble();
-            }
-            // --- FIX END ---
+          int curS2 = _sum(sd, sem2Limits);
+          int curS3 = _sum(sd, sem3Limits);
+          int curS4 = _sum(sd, sem4Limits);
+          int curS5 = _sum(sd, sem5Limits);
+          int curS6 = _sum(sd, sem6Limits);
 
-            // Configuration based on active selection from your framework
-            Map<String, double> roleThresholds = {};
-            double currentRef = 0;
-            int studentScore = 0;
-            String headerTitle = "";
+          if (curS2 > topperS1to2) topperS1to2 = curS2.toDouble();
+          if ((curS2 + curS3) > topperS1to3) topperS1to3 = (curS2 + curS3).toDouble();
+          if ((curS2 + curS3 + curS4) > topperS1to4) topperS1to4 = (curS2 + curS3 + curS4).toDouble();
+          if ((curS2 + curS3 + curS4 + curS5) > topperS1to5) topperS1to5 = (curS2 + curS3 + curS4 + curS5).toDouble();
+          double total = (curS2 + curS3 + curS4 + curS5 + curS6).toDouble();
+          if (total > topperGrand) topperGrand = total;
+        }
 
-            if (viewYear == "First Year") {
-              roleThresholds = {
-                'Class Representative': 0.4, 'CoE Student Volunteer': 0.4,
-                'Event Lead (II Year)': 0.4, 'Doc & Report Lead': 0.4,
-                'Digital Media Lead': 0.4, 'Alumni Relations Coord': 0.4,
-                'Coding Club Secretary': 0.6, 'Placement Coord (Training)': 0.6,
-              };
-              currentRef = topperY1; studentScore = y1; headerTitle = "III SEMESTER ELIGIBILITY";
-            } else if (viewYear == "Second Year") {
-              roleThresholds = {
-                'Class Representative': 0.4, 'Class Committee Member': 0.4,
-                'CoE Student Volunteer (IoT)': 0.6, 'IV Coordinator': 0.6,
-                'Placement Coordinator': 0.6, 'Digital Media Lead': 0.6,
-              };
-              currentRef = topperY12; studentScore = y1 + y2; headerTitle = "IV SEMESTER SELECTION";
-            } else {
-              roleThresholds = {
-                'Chief Student Coordinator': 0.8, 'Hackathon Secretary': 0.8,
-                'Placement Coordinator (Core)': 0.7, 'CoE Student Lead': 0.7,
-                'Chief Placement Coordinator (Strategic)': 0.8,
-              };
-              currentRef = topperGrand; studentScore = y1 + y2 + y3; headerTitle = "FINAL YEAR STRATEGIC ROLES";
-            }
+        if (myData == null) return const Scaffold(body: Center(child: Text("User not found")));
 
-            Map<String, int> activeLimits = (viewYear == "First Year") ? year1Limits : (viewYear == "Second Year" ? year2Limits : year3Limits);
+        // --- 3. DECLARE LOGIC VARIABLES ---
+        String headerTitle = "";
+        double currentRef = 0;
+        int studentScore = 0;
+        int semesterOnlyPoints = 0;
+        Map<String, double> roleThresholds = {};
+        Map<String, int> activeBreakdownLimits = {};
 
-            return Scaffold(
-              appBar: AppBar(title: Text("$viewYear Analysis"), actions: [
-                IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))
-              ]),
-              body: ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  Text("Welcome, ${d['name']}!", textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: "First Year", label: Text("Y1")),
-                      ButtonSegment(value: "Second Year", label: Text("Y2")),
-                      ButtonSegment(value: "Third Year", label: Text("Y3")),
-                    ],
-                    selected: {viewYear},
-                    onSelectionChanged: (s) => setState(() => viewYear = s.first),
+        int s2 = _sum(myData, sem2Limits);
+        int s3 = _sum(myData, sem3Limits);
+        int s4 = _sum(myData, sem4Limits);
+        int s5 = _sum(myData, sem5Limits);
+        int s6 = _sum(myData, sem6Limits);
+
+        // --- 4. ASSIGN LOGIC BASED ON TAB ---
+        if (viewYear == "First Year") {
+          headerTitle = "III SEM EP ROLES";
+          currentRef = topperS1to2;
+          studentScore = s2;
+          semesterOnlyPoints = s2;
+          activeBreakdownLimits = sem2Limits;
+          roleThresholds = {
+            'Class Representative': 0.4,
+            'CoE Student Volunteer': 0.4,
+            'Event Lead (II Year)': 0.4,
+            'Doc & Report Lead': 0.4,
+            'Digital Media Lead': 0.4,
+            'Alumni Relations Coord': 0.4,
+            'Coding Club Secretary': 0.6,
+            'Placement Coordinator(Training)': 0.6,
+            'Department Library Coordinator': 0.4,
+          };
+        } else if (viewYear == "Second Year") {
+          headerTitle = "IV SEM EP ROLES";
+          currentRef = topperS1to3;
+          studentScore = s2 + s3;
+          semesterOnlyPoints = s3;
+          activeBreakdownLimits = sem3Limits;
+          roleThresholds = {
+            'Class Representative': 0.4,
+            'IV Coordinator': 0.6,
+            'CoE Student Volunteer': 0.6,
+            'Placement Coordinator': 0.6,
+            'Digital Media Lead': 0.6,
+            'Library Coordinator': 0.4,
+            'Event Lead': 0.6,
+            'Alumni Relations Coordinator': 0.4,
+            'Documentation Lead': 0.4,
+            'Coding Club Secretary': 0.6,
+          };
+        } else if (viewYear == "Third Year") {
+          headerTitle = "V SEM EP ROLES";
+          currentRef = topperS1to4;
+          studentScore = s2 + s3 + s4;
+          semesterOnlyPoints = s4;
+          activeBreakdownLimits = sem4Limits;
+          roleThresholds = {
+            'Class Representative': 0.4,
+            'CoE Student Incharger': 0.6,
+            'Coding Club Secretary': 0.6,
+            'IEI / IIC / IETE Secretary': 0.8,
+            'iEI/IIC/IETE Treasurer': 0.6,
+            'Office Bearers': 0.4,
+            'IV Coordinator':0.6,
+            'Library Coordinator': 0.6,
+            'Placement Coordinator': 0.6,
+            'Alumini Relations Coordinator':0.4,
+            'documentation & report lead':0.4,
+            'Digital Media Lead':0.4
+          };
+        } else if (viewYear == "VI Sem") {
+          headerTitle = "VI SEM EP ROLES";
+          currentRef = topperS1to5;
+          studentScore = s2 + s3 + s4 + s5;
+          semesterOnlyPoints = s5;
+          activeBreakdownLimits = sem5Limits;
+          roleThresholds = {
+            'Placement Coordinator': 0.7,
+            'Chief Student Coordinator': 0.8,
+            'Hackathon Secretary': 0.8,
+            'Hackathon Treasurer': 0.6,
+            'CoE Student Lead': 0.7,
+            'Senior Student Mentor Lead ': 0.6,
+            'Dept Documentation Lead': 0.5,
+            'Digital Media Lead': 0.5,
+            'EP Coordinator': 0.6
+          };
+        } else {
+          headerTitle = "VII SEM EP ROLES";
+          currentRef = topperGrand;
+          studentScore = s2 + s3 + s4 + s5 + s6;
+          semesterOnlyPoints = s6;
+          activeBreakdownLimits = sem6Limits;
+          roleThresholds = {
+            'Chief Placement Coordinator': 0.8,
+            'Placement Coordinator': 0.7,
+          };
+        }
+        // --- LOCATE THIS IN YOUR BUILD METHOD ---
+
+
+        return Scaffold(
+ appBar: AppBar(
+  title: Text("Welcome, ${myData['name']}"),
+  // Deep Navy background for high visibility and professional branding
+  backgroundColor: const Color(0xFF001D3D), 
+  // Metallic Silver/White text for clear contrast
+  foregroundColor: const Color(0xFFF3E8F1), 
+  actions: [
+    IconButton(
+      icon: const Icon(Icons.logout),
+      onPressed: _logout,
+      tooltip: 'Logout',
+    ),
+  ],
+),
+
+          body: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              _buildInspirationCard(), 
+    
+              const SizedBox(height: 25),
+              
+             // Changed $semesterOnlyPoints to $studentScore to show cumulative marks
+_buildPointBox(
+  "${viewYear.toUpperCase()} CUMULATIVE MARKS", 
+  "$studentScore EP", 
+  const Color.fromARGB(255, 3, 3, 97)
+),
+const SizedBox(height: 20),
+              _buildYearSelector(),
+              const SizedBox(height: 25),
+              Text(headerTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text("Benchmark (100%): ${currentRef.toInt()} EP", style: const TextStyle(color: Color.fromARGB(255, 40, 168, 160), fontSize: 11)),
+              const Divider(),
+
+              
+              ...roleThresholds.entries.map((role) {
+                double target = currentRef * role.value;
+                bool isEligible = studentScore >= target;
+                double gap = target - studentScore;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  color: isEligible ?  Color.fromARGB(255, 247, 254, 254) : Colors.red.shade50,
+                  child: ListTile(
+                    leading: Icon(isEligible ? Icons.verified : Icons.lock_outline, color: isEligible ? Colors.green : Colors.red),
+                    title: Text(role.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Criteria: ${(role.value * 100).toInt()}% of Topper (${target.toStringAsFixed(1)} EP)"),
+                        if (!isEligible)
+                          Text("Need: ${gap.toStringAsFixed(1)} more EP", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 11)),
+                      ],
+                    ),
+                    trailing: Text(
+                      isEligible ? "ELIGIBLE" : "LOCKED",
+                      style: TextStyle(color: isEligible ? Colors.green : Colors.red, fontWeight: FontWeight.bold, fontSize: 10),
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                );
+              }),
 
-                  Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                  Text("Batch Topper Reference: ${currentRef.toInt()} EP", style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  const SizedBox(height: 10),
-
-                  ...roleThresholds.entries.map((role) {
-                    double target = currentRef * role.value;
-                    bool isOk = studentScore >= target;
-                    double gap = target - studentScore;
-
-                    return Card(
-                      color: isOk ? Colors.green.shade50 : Colors.orange.shade50,
-                      child: ListTile(
-                        dense: true,
-                        leading: Icon(isOk ? Icons.stars : Icons.lock_outline, color: isOk ? Colors.green : Colors.orange),
-                        title: Text(role.key, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("Criteria: ${(role.value * 100).toInt()}% of Highest"),
-                            if (!isOk) Text("Need: ${gap.toStringAsFixed(1)} EP more", style: const TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        trailing: Text(isOk ? "QUALIFIED" : "LOCKED", style: TextStyle(color: isOk ? Colors.green : Colors.grey, fontWeight: FontWeight.bold, fontSize: 10)),
-                      ),
-                    );
-                  }).toList(),
-
-                  const Divider(height: 40),
-                  const Text("YEARLY ACTIVITY BREAKDOWN", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ...activeLimits.entries.map((e) => ListTile(
-                    dense: true,
-                    title: Text(e.key.replaceAll('_', ' ').toUpperCase()),
-                    trailing: Text("${d[e.key] ?? 0} / ${e.value}"),
-                  )),
-                ],
+              const SizedBox(height: 30),
+              Text("${viewYear.toUpperCase()} ACTIVITY BREAKDOWN", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const Divider(),
+              ...activeBreakdownLimits.entries.map((e) => ListTile(
+                dense: true,
+                title: Text(e.key.replaceAll('_', ' ').toUpperCase()),
+                trailing: Text("${myData![e.key] ?? 0} / ${e.value}"),
+              )),
+              
+              Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("TOTAL SEMESTER EP:", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text("$semesterOnlyPoints", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.blue)),
+                  ],
+                ),
               ),
-            );
-          },
+            ],
+          ),
         );
       },
     );
   }
-}
 
+  Widget _buildPointBox(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: color, 
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+ 
+  
+
+
+  Widget _buildYearSelector() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: "First Year", label: Text("SEM 3")),
+          ButtonSegment(value: "Second Year", label: Text("SEM 4")),
+          ButtonSegment(value: "Third Year", label: Text("SEM 5")),
+          ButtonSegment(value: "VI Sem", label: Text("SEM 6")),
+          ButtonSegment(value: "VII Sem", label: Text("SEM 7")),
+        ],
+        selected: {viewYear},
+        onSelectionChanged: (s) => setState(() => viewYear = s.first),
+      ),
+    );
+  }
+}
 // --- ADMIN DASHBOARD //---
-class AdminDashboard extends StatefulWidget {
+
+ class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
 
   @override
@@ -380,242 +655,183 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  String filterYear = "Cumulative (Y1-Y3)";
+  String filterYear = "SIXTH SEMESTER"; 
+  bool showTable = false; 
+  String currentViewMode = "admin"; // Tracks impersonation for Staff/Student views
 
-  int _calculatePoints(Map<String, dynamic> d, String filter) {
-    int total = 0;
-    if (filter == "First Year" || filter == "Cumulative (Y1-Y3)") {
-      year1Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    }
-    if (filter == "Second Year" || filter == "Cumulative (Y1-Y3)") {
-      year2Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    }
-    if (filter == "Third Year" || filter == "Cumulative (Y1-Y3)") {
-      year3Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    }
-    return total;
+  // --- CORE LOGIC: Cumulative Point Summation ---
+  int _calculateCumulativePoints(Map<String, dynamic> d, String filter) {
+    int s2 = _sum(d, sem2Limits);
+    int s3 = _sum(d, sem3Limits);
+    int s4 = _sum(d, sem4Limits);
+    int s5 = _sum(d, sem5Limits);
+    int s6 = _sum(d, sem6Limits);
+
+    if (filter == "First Year") return s2;
+    if (filter == "THIRD SEMESTER") return s2 + s3;
+    if (filter == "FOURTH SEMESTER") return s2 + s3 + s4;
+    if (filter == "FIFTH SEMESTER") return s2 + s3 + s4 + s5;
+    return s2 + s3 + s4 + s5 + s6; 
+  }
+
+  int _sum(Map<String, dynamic> d, Map<String, int> l) {
+    int t = 0;
+    l.forEach((k, _) {
+      var val = d[k] ?? 0;
+      t += (val is int) ? val : (val as num).toInt();
+    });
+    return t;
   }
 
   @override
   Widget build(BuildContext context) {
-    double maxPoints = filterYear == "First Year" ? 40 : (filterYear == "Second Year" ? 80 : 120);
+    // --- GOD MODE ROUTING ---
+    if (currentViewMode == "staff") return _impersonate(const StaffDashboard());
+    if (currentViewMode == "student") {
+      // Logic to find a real ID is handled inside the StreamBuilder below
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Admin Batch Analytics"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())),
-          )
-        ],
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        // Maintains original document order from Firestore/CSV import
-        stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+    double maxPoints = filterYear == "First Year" ? 40 : 
+                       filterYear == "THIRD SEMESTER" ? 80 : 
+                       filterYear == "FOURTH SEMESTER" ? 120 : 
+                       filterYear == "FIFTH SEMESTER" ? 160 : 200;
 
-          double s1Sum = 0, s2Sum = 0;
-          int s1Count = 0, s2Count = 0;
-          String s1BestName = "N/A";
-          int s1BestScore = -1;
-          String s2BestName = "N/A";
-          int s2BestScore = -1;
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-          List<Map<String, dynamic>> allStudents = [];
-          double batchHighest = 0;
+        double s1Sum = 0, s2Sum = 0;
+        int s1Count = 0, s2Count = 0;
+        String s1TopperName = "N/A", s2TopperName = "N/A";
+        int s1TopperScore = -1, s2TopperScore = -1;
+        List<Map<String, dynamic>> students = [];
+        double batchHighest = 0;
+        String? firstStudentId;
 
-          for (var doc in snapshot.data!.docs) {
-            var data = doc.data() as Map<String, dynamic>;
-            int score = _calculatePoints(data, filterYear);
-            String name = data['name'] ?? "Unknown";
+        for (var doc in snapshot.data!.docs) {
+          var data = doc.data() as Map<String, dynamic>;
+          int score = _calculateCumulativePoints(data, filterYear);
+          if (score > batchHighest) batchHighest = score.toDouble();
+          if (firstStudentId == null) firstStudentId = doc.id;
 
-            if (score > batchHighest) batchHighest = score.toDouble();
+          var studentInfo = {
+            'name': data['name'] ?? "Unknown",
+            'regNo': data['regNo'] ?? "N/A",
+            'score': score,
+            'section': data['section'] ?? "Sec 1",
+          };
+          students.add(studentInfo);
 
-            allStudents.add({
-              'name': name,
-              'regNo': data['regNo'] ?? "N/A",
-              'score': score,
-              'section': data['section'] ?? "Sec 1",
-            });
-
-            if (data['section'] == "Sec 1") {
-              s1Sum += score;
-              s1Count++;
-              if (score > s1BestScore) { s1BestScore = score; s1BestName = name; }
-            } else {
-              s2Sum += score;
-              s2Count++;
-              if (score > s2BestScore) { s2BestScore = score; s2BestName = name; }
-            }
+          // Calculate Section Averages and Section Toppers
+          if (studentInfo['section'] == "Sec 1") {
+            s1Sum += score; s1Count++;
+            if (score > s1TopperScore) { s1TopperScore = score; s1TopperName = studentInfo['name'] as String; }
+          } else {
+            s2Sum += score; s2Count++;
+            if (score > s2TopperScore) { s2TopperScore = score; s2TopperName = studentInfo['name'] as String; }
           }
+        }
 
-          double s1Avg = s1Count > 0 ? s1Sum / s1Count : 0;
-          double s2Avg = s2Count > 0 ? s2Sum / s2Count : 0;
-          double overallPercent = ((s1Avg + s2Avg) / 2) / maxPoints * 100;
+        if (currentViewMode == "student") return _impersonate(StudentDashboard(uid: firstStudentId ?? "sample_uid"));
 
-          // Define Eligibility Buckets based on framework percentages
-          var elite80 = allStudents.where((s) => s['score'] >= (batchHighest * 0.8) && batchHighest > 0).toList();
-          var strategic70 = allStudents.where((s) => s['score'] >= (batchHighest * 0.7) && s['score'] < (batchHighest * 0.8)).toList();
-          var functional60 = allStudents.where((s) => s['score'] >= (batchHighest * 0.6) && s['score'] < (batchHighest * 0.7)).toList();
-          var standard40 = allStudents.where((s) => s['score'] >= (batchHighest * 0.4) && s['score'] < (batchHighest * 0.6)).toList();
+        double s1Avg = s1Count > 0 ? s1Sum / s1Count : 0;
+        double s2Avg = s2Count > 0 ? s2Sum / s2Count : 0;
+        String leadingSection = s1Avg > s2Avg ? "SECTION 1" : "SECTION 2";
+        double winPercent = ((s1Avg > s2Avg ? s1Avg : s2Avg) / maxPoints) * 100;
 
-          // Segregate for Section-wise tables (Maintains order within each section)
-          var sec1List = allStudents.where((s) => s['section'] == "Sec 1").toList();
-          var sec2List = allStudents.where((s) => s['section'] == "Sec 2").toList();
-
-          return ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(border: Border.all(color: Colors.blue), borderRadius: BorderRadius.circular(8)),
-                child: DropdownButton<String>(
-                  value: filterYear,
-                  isExpanded: true,
-                  underline: const SizedBox(),
-                  items: ["Cumulative (Y1-Y3)", "First Year", "Second Year", "Third Year"]
-                      .map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
-                  onChanged: (v) => setState(() => filterYear = v!),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              Card(
-                color: Colors.blue.shade900,
-                child: Padding(
-                  padding: const EdgeInsets.all(25),
-                  child: Column(children: [
-                    Text("AVERAGE CLASS SCORE ($filterYear)", style: const TextStyle(color: Colors.white70)),
-                    Text("${overallPercent.toStringAsFixed(1)}%", style: const TextStyle(color: Colors.white, fontSize: 45, fontWeight: FontWeight.bold)),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(child: _performerCard("SEC 1 TOPPER", s1BestName, s1BestScore)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _performerCard("SEC 2 TOPPER", s2BestName, s2BestScore)),
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text("Admin Batch Analytics"),
+            actions: [
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.account_tree_outlined, color: Colors.blue),
+                onSelected: (v) => setState(() => currentViewMode = v),
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(value: "admin", child: Text("Admin View")),
+                  const PopupMenuItem(value: "staff", child: Text("Staff View")),
+                  const PopupMenuItem(value: "student", child: Text("Student View")),
                 ],
               ),
-              const SizedBox(height: 30),
-
-              const Text("SECTION COMPARISON", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 20),
+              IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()))),
+            ],
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              // 1. Comparison Winner Card
               Card(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: SizedBox(
-                    height: 200,
-                    child: BarChart(
-                      BarChartData(
-                        maxY: maxPoints,
-                        barGroups: [
-                          BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1Avg, color: Colors.blue.shade600, width: 40)]),
-                          BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2Avg, color: Colors.orange.shade600, width: 40)]),
-                        ],
-                        titlesData: FlTitlesData(
-                          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2"))),
-                          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30)),
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        ),
-                      ),
-                    ),
-                  ),
+                color: Colors.indigo.shade800,
+                child: ListTile(
+                  leading: const Icon(Icons.workspace_premium, color: Colors.amber, size: 40),
+                  title: Text("LEADING: $leadingSection", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: Text("Avg Achievement: ${winPercent.toStringAsFixed(1)}%", style: const TextStyle(color: Colors.white70)),
                 ),
               ),
-              
-              const Divider(height: 50),
-              const Text("ROLE ELIGIBILITY VERIFICATION", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
-              const SizedBox(height: 10),
-              _eligibilityGroup("ELITE TIER (>=80%)", "Qualified for Chief Roles", elite80, Colors.amber),
-              _eligibilityGroup("STRATEGIC TIER (>=70%)", "Qualified for Placement Leads", strategic70, Colors.deepPurple),
-              _eligibilityGroup("FUNCTIONAL TIER (>=60%)", "Qualified for Club/CoE Leads", functional60, Colors.blue),
-              _eligibilityGroup("FOUNDATION TIER (>=40%)", "Qualified for Class Reps", standard40, Colors.green),
+              const SizedBox(height: 25),
 
-              const Divider(height: 50),
-              
-              // NEW SECTION: SECTION 1 ORDERED TABLE
-              const Text("SECTION 1 MARKS (CSV ORDER)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
-              const SizedBox(height: 10),
-              _buildOrderedTable(sec1List, batchHighest),
-
-              const SizedBox(height: 40),
-
-              // NEW SECTION: SECTION 2 ORDERED TABLE
-              const Text("SECTION 2 MARKS (CSV ORDER)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
-              const SizedBox(height: 10),
-              _buildOrderedTable(sec2List, batchHighest),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildOrderedTable(List<Map<String, dynamic>> students, double topper) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        border: TableBorder.all(color: Colors.grey.shade300),
-        columns: const [
-          DataColumn(label: Text("Name")),
-          DataColumn(label: Text("Total EP")),
-          DataColumn(label: Text("%")),
-          DataColumn(label: Text("Status")),
-        ],
-        rows: students.map((s) {
-          double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
-          return DataRow(cells: [
-            DataCell(Text(s['name'], style: const TextStyle(fontSize: 12))),
-            DataCell(Text("${s['score']}")),
-            DataCell(Text("${p.toStringAsFixed(1)}%")),
-            DataCell(Text(
-              p >= 40.0 ? "ELIGIBLE" : "NOT ELIGIBLE",
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: p >= 40.0 ? Colors.green : Colors.red,
+              // 2. Semester Selector
+              DropdownButton<String>(
+                value: filterYear, isExpanded: true,
+                items: ["First Year", "THIRD SEMESTER", "FOURTH SEMESTER", "FIFTH SEMESTER", "SIXTH SEMESTER"].map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
+                onChanged: (v) => setState(() { filterYear = v!; showTable = false; }),
               ),
-            )),
-          ]);
-        }).toList(),
-      ),
+              const SizedBox(height: 25),
+
+              // 3. Section Topper Gallery
+              const Text("SECTION TOPPERS", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: _performerCard("SEC 1 TOPPER", s1TopperName, s1TopperScore)),
+                const SizedBox(width: 10),
+                Expanded(child: _performerCard("SEC 2 TOPPER", s2TopperName, s2TopperScore)),
+              ]),
+              const SizedBox(height: 30),
+
+              // 4. Bar Chart Comparison
+              
+              const Text("SECTION ACHIEVEMENT RATIO (%)", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 15),
+              _buildBarChart(s1Avg, s2Avg, maxPoints),
+              
+              const Divider(height: 50),
+
+              // 5. Verification Table Toggle
+              ElevatedButton.icon(
+                onPressed: () => setState(() => showTable = !showTable),
+                icon: Icon(showTable ? Icons.visibility_off : Icons.analytics),
+                label: Text(showTable ? "HIDE DATA TABLE" : "GENERATE VERIFICATION TABLE"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white),
+              ),
+
+              if (showTable) ...[
+                const SizedBox(height: 20),
+                _buildSectionTable("SECTION 1 VERIFICATION", students.where((s) => s['section'] == "Sec 1").toList(), batchHighest, Colors.blue),
+                const SizedBox(height: 30),
+                _buildSectionTable("SECTION 2 VERIFICATION", students.where((s) => s['section'] == "Sec 2").toList(), batchHighest, Colors.orange),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _performerCard(String title, String name, int score) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange)),
-        Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
-        Text("$score EP", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-      ]),
-    );
-  }
+  // --- UI COMPONENTS ---
 
-  Widget _eligibilityGroup(String title, String subtitle, List<Map<String, dynamic>> students, Color color) {
-    return ExpansionTile(
-      leading: Icon(Icons.verified_user, color: color),
-      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11)),
-      children: students.isEmpty 
-        ? [const ListTile(title: Text("No students in this tier", style: TextStyle(fontSize: 12, color: Colors.grey)))]
-        : students.map((s) => ListTile(
-            title: Text(s['name'], style: const TextStyle(fontSize: 13)),
-            subtitle: Text("Reg: ${s['regNo']} | ${s['section']}", style: const TextStyle(fontSize: 11)),
-            trailing: Text("${s['score']} EP", style: const TextStyle(fontWeight: FontWeight.bold)),
-          )).toList(),
-    );
-  }
+  Widget _impersonate(Widget child) => Stack(children: [child, Positioned(bottom: 20, right: 20, child: FloatingActionButton.extended(onPressed: () => setState(() => currentViewMode = "admin"), label: const Text("Exit Preview"), icon: const Icon(Icons.admin_panel_settings), backgroundColor: Colors.redAccent))]);
+
+  Widget _buildBarChart(double s1, double s2, double max) => SizedBox(height: 180, child: BarChart(BarChartData(maxY: max, barGroups: [BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1, color: Colors.blue, width: 40)]), BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2, color: Colors.orange, width: 40)])], titlesData: FlTitlesData(bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2")))))));
+
+  Widget _buildSectionTable(String title, List<Map<String, dynamic>> data, double topper, Color color) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 10), DataTable(headingRowColor: MaterialStateProperty.all(color.withOpacity(0.1)), columns: const [DataColumn(label: Text("Name")), DataColumn(label: Text("EP")), DataColumn(label: Text("%"))], rows: data.map((s) { double p = topper > 0 ? (s['score'] / topper) * 100 : 0; return DataRow(cells: [DataCell(Text(s['name'], style: const TextStyle(fontSize: 11))), DataCell(Text("${s['score']}")), DataCell(Text("${p.toStringAsFixed(1)}%"))]); }).toList())]);
+
+  Widget _performerCard(String title, String name, int score) => Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)), Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)), Text("$score EP", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900))]));
 }
+
+
+
+
+
 // --- STAFF DASHBOARD ---
 class StaffDashboard extends StatefulWidget {
   const StaffDashboard({super.key});
@@ -625,7 +841,8 @@ class StaffDashboard extends StatefulWidget {
 
 class _StaffDashboardState extends State<StaffDashboard> {
   final _reg = TextEditingController();
-  String activeYear = "First Year";
+  // Renamed default to match your new request
+  String activeYear = "First Year"; 
   final Map<String, TextEditingController> _ctrls = {};
   bool _isSaving = false;
 
@@ -635,32 +852,56 @@ class _StaffDashboardState extends State<StaffDashboard> {
     _initControllers();
   }
 
+  // --- 1. DYNAMIC LIMITS & WRITE ACCESS ---
+  // Maps the new Semester Labels to the correct Point Limit Maps
+  Map<String, int> _getLimits() {
+    switch (activeYear) {
+      case "First Year": return sem2Limits;
+      case "THIRD SEMESTER": return sem3Limits;
+      case "FOURTH SEMESTER": return sem4Limits;
+      case "FIFTH SEMESTER": return sem5Limits;
+      case "SIXTH SEMESTER": return sem6Limits;
+      default: return sem2Limits;
+    }
+  }
+
   void _initControllers() {
     _ctrls.clear();
     _getLimits().forEach((k, _) => _ctrls[k] = TextEditingController());
   }
 
-  Map<String, int> _getLimits() => (activeYear == "First Year")
-      ? year1Limits
-      : (activeYear == "Second Year" ? year2Limits : year3Limits);
-
-  // Core Point Calculation Logic
+  // --- 2. CUMULATIVE CALCULATION LOGIC ---
   int _calculateCumulativePoints(Map<String, dynamic> d, String year) {
-    int total = 0;
-    year1Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    if (year != "First Year") year2Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    if (year == "Third Year") year3Limits.forEach((k, _) => total += (d[k] ?? 0) as int);
-    return total;
+    int s2 = _sum(d, sem2Limits);
+    int s3 = _sum(d, sem3Limits);
+    int s4 = _sum(d, sem4Limits);
+    int s5 = _sum(d, sem5Limits);
+    int s6 = _sum(d, sem6Limits);
+
+    if (year == "First Year") return s2;
+    if (year == "THIRD SEMESTER") return s2 + s3;
+    if (year == "FOURTH SEMESTER") return s2 + s3 + s4;
+    if (year == "FIFTH SEMESTER") return s2 + s3 + s4 + s5;
+    return s2 + s3 + s4 + s5 + s6; // SIXTH SEMESTER Milestone
   }
 
-  // --- MARKS ENTRY (WRITE ACCESS) ---
+  int _sum(Map<String, dynamic> d, Map<String, int> l) {
+    int t = 0;
+    l.forEach((k, _) {
+      var val = d[k] ?? 0;
+      t += (val is int) ? val : (val as num).toInt();
+    });
+    return t;
+  }
+
+  // --- MARKS ENTRY SEARCH & UPDATE ---
   void _search() async {
     var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
     if (q.docs.isNotEmpty) {
       var data = q.docs.first.data();
       setState(() => _ctrls.forEach((k, v) => v.text = (data[k] ?? 0).toString()));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student not found")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student not found")));
     }
   }
 
@@ -678,7 +919,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
     });
 
     if (isInvalid) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds point limit!"), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds point limit!"), backgroundColor: Colors.red));
       setState(() => _isSaving = false);
       return;
     }
@@ -686,12 +927,12 @@ class _StaffDashboardState extends State<StaffDashboard> {
     var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
     if (q.docs.isNotEmpty) {
       await q.docs.first.reference.update(updates);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated!")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated Successfully!")));
     }
     setState(() => _isSaving = false);
   }
 
-  // --- VERIFICATION REPORT (READ ACCESS) ---
+  // --- VERIFICATION REPORT MODAL ---
   void _showVerificationReport() {
     showModalBottomSheet(
       context: context,
@@ -706,13 +947,11 @@ class _StaffDashboardState extends State<StaffDashboard> {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
             double batchHighest = 0;
-            // 1. Identify topper based on cumulative selection
             for (var doc in snapshot.data!.docs) {
               int s = _calculateCumulativePoints(doc.data() as Map<String, dynamic>, activeYear);
               if (s > batchHighest) batchHighest = s.toDouble();
             }
 
-            // 2. Process data in Firestore/CSV order
             List<Map<String, dynamic>> students = snapshot.data!.docs.map((doc) {
               var d = doc.data() as Map<String, dynamic>;
               return {
@@ -726,7 +965,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
               controller: controller,
               padding: const EdgeInsets.all(20),
               children: [
-                Text("$activeYear VERIFICATION TABLE", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+                Text("${activeYear} VERIFICATION", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
                 Text("Reference Topper: ${batchHighest.toInt()} EP", style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 const Divider(height: 30),
                 _buildTable("SECTION 1", students.where((s) => s['section'] == "Sec 1").toList(), batchHighest),
@@ -746,9 +985,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
       const SizedBox(height: 10),
       Table(
         border: TableBorder.all(color: Colors.grey.shade300),
-        columnWidths: const {
-          0: FlexColumnWidth(2.5), 1: FlexColumnWidth(0.8), 2: FlexColumnWidth(1), 3: FlexColumnWidth(1.5)
-        },
+        columnWidths: const {0: FlexColumnWidth(2.5), 1: FlexColumnWidth(0.8), 2: FlexColumnWidth(1), 3: FlexColumnWidth(1.5)},
         children: [
           TableRow(
             decoration: BoxDecoration(color: Colors.blue.shade50),
@@ -760,17 +997,14 @@ class _StaffDashboardState extends State<StaffDashboard> {
             ],
           ),
           ...data.map((s) {
-            double percentage = topper > 0 ? (s['score'] / topper) * 100 : 0;
-            bool isEligible = percentage >= 40.0; // Base leadership threshold
-
+            double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
+            bool ok = p >= 40.0;
             return TableRow(children: [
               Padding(padding: EdgeInsets.all(8), child: Text(s['name'], style: const TextStyle(fontSize: 10))),
               Padding(padding: EdgeInsets.all(8), child: Text("${s['score']}", style: const TextStyle(fontSize: 10))),
-              Padding(padding: EdgeInsets.all(8), child: Text("${percentage.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 10))),
-              Padding(padding: const EdgeInsets.all(8), child: Text(
-                isEligible ? "ELIGIBLE" : "NOT ELIGIBLE",
-                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isEligible ? Colors.green.shade700 : Colors.red.shade700),
-              )),
+              Padding(padding: EdgeInsets.all(8), child: Text("${p.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 10))),
+              Padding(padding: const EdgeInsets.all(8), child: Text(ok ? "ELIGIBLE" : "NOT ELIGIBLE",
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: ok ? Colors.green : Colors.red))),
             ]);
           }),
         ],
@@ -787,9 +1021,12 @@ class _StaffDashboardState extends State<StaffDashboard> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
+          // DROPDOWN WITH NEW SEMESTER LABELS
           DropdownButton<String>(
-            value: activeYear, isExpanded: true,
-            items: ["First Year", "Second Year", "Third Year"].map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
+            value: activeYear, 
+            isExpanded: true,
+            items: ["First Year", "THIRD SEMESTER", "FOURTH SEMESTER", "FIFTH SEMESTER", "SIXTH SEMESTER"]
+                .map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
             onChanged: (v) => setState(() { activeYear = v!; _initControllers(); }),
           ),
           const SizedBox(height: 10),
@@ -808,4 +1045,3 @@ class _StaffDashboardState extends State<StaffDashboard> {
     );
   }
 }
-
