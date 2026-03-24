@@ -6,6 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'splash_screen.dart'; 
 import 'firebase_options.dart'; // Add this line at the top
+import 'package:csv/csv.dart';
+import 'dart:html' as html;
+ import 'package:file_picker/file_picker.dart';
+ import 'dart:convert';
 
 void main() async {
   // 1. Ensure the engine is ready
@@ -655,25 +659,88 @@ const SizedBox(height: 20),
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  String filterYear = "SIXTH SEMESTER"; 
-  bool showTable = false; 
-  String currentViewMode = "admin"; // Tracks impersonation for Staff/Student views
+  // ── Original state ──────────────────────────────────────────
+  String filterYear = "SIXTH SEMESTER";
+  bool showTable = false;
+  String currentViewMode = "admin";
+ 
+  // ── Batch state (was already in your code) ──────────────────
+  String selectedBatch = "26";
+ 
+  // ════════════════════════════════════════════════════════════
+  // ORIGINAL: Add Batch Dialog — UNCHANGED
+  // ════════════════════════════════════════════════════════════
+  void _showAddBatchDialog() {
+    TextEditingController batchController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Create New Academic Batch"),
+        content: TextField(
+          controller: batchController,
+          decoration: const InputDecoration(hintText: "Enter Batch Code (e.g., 29)"),
+          keyboardType: TextInputType.number,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () async {
+              if (batchController.text.isNotEmpty) {
+                await FirebaseFirestore.instance.collection('batches').add({
+                  'code': batchController.text,
+                  'name': "Batch ${batchController.text}",
+                  'active': true,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Batch Created Successfully")),
+                );
+              }
+            },
+            child: const Text("Create"),
+          ),
+        ],
+      ),
+    );
+  }
+ 
+  // ════════════════════════════════════════════════════════════
+  // ORIGINAL: Export to CSV — UNCHANGED
+  // ════════════════════════════════════════════════════════════
+  void _exportToCSV(List<Map<String, dynamic>> students) {
+    List<List<dynamic>> rows = [];
+    rows.add(["Register No", "Name", "Section", "Batch", "Total EP"]);
+ 
+    for (var s in students) {
+      rows.add([s['regNo'], s['name'], s['section'], selectedBatch, s['score']]);
+    }
+ 
+    String csvData = const ListToCsvConverter().convert(rows);
+    final bytes = Uri.encodeComponent(csvData);
+    html.AnchorElement(href: "data:text/csv;charset=utf-8,$bytes")
+      ..setAttribute("download", "ECE_Batch_${selectedBatch}_Report.csv")
+      ..click();
+  }
+ // TEMPORARY — remove this button after running cleanup once
 
-  // --- CORE LOGIC: Cumulative Point Summation ---
+  // ════════════════════════════════════════════════════════════
+  // ORIGINAL: Cumulative Point Summation — UNCHANGED
+  // ════════════════════════════════════════════════════════════
   int _calculateCumulativePoints(Map<String, dynamic> d, String filter) {
     int s2 = _sum(d, sem2Limits);
     int s3 = _sum(d, sem3Limits);
     int s4 = _sum(d, sem4Limits);
     int s5 = _sum(d, sem5Limits);
     int s6 = _sum(d, sem6Limits);
-
+ 
     if (filter == "First Year") return s2;
     if (filter == "THIRD SEMESTER") return s2 + s3;
     if (filter == "FOURTH SEMESTER") return s2 + s3 + s4;
     if (filter == "FIFTH SEMESTER") return s2 + s3 + s4 + s5;
-    return s2 + s3 + s4 + s5 + s6; 
+    return s2 + s3 + s4 + s5 + s6;
   }
-
+ 
   int _sum(Map<String, dynamic> d, Map<String, int> l) {
     int t = 0;
     l.forEach((k, _) {
@@ -682,25 +749,313 @@ class _AdminDashboardState extends State<AdminDashboard> {
     });
     return t;
   }
+ 
+  // ════════════════════════════════════════════════════════════
+  // ★ NEW ADDITION 1: Batch Selector Chips
+  //   Streams live from Firestore 'batches' collection.
+  //   Tapping a chip sets [selectedBatch].
+  // ════════════════════════════════════════════════════════════
+  Widget _buildBatchSelector() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('batches')
+          .where('active', isEqualTo: true)
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox(
+            height: 40,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+ 
+        final batches = snapshot.data!.docs;
+ 
+        if (batches.isEmpty) {
+          return const Text(
+            "No batches yet. Use the + button to create one.",
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          );
+        }
+ 
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: batches.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final code = data['code']?.toString() ?? doc.id;
+              final label = data['name']?.toString() ?? "Batch $code";
+              final isSelected = selectedBatch == code;
+ 
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: () => setState(() => selectedBatch = code),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.blue.shade800 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected ? Colors.blue.shade900 : Colors.grey.shade400,
+                      ),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.black87,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+  // ONE-TIME CLEANUP: Remove previous_marks from all student docs
+Future<void> _cleanupPreviousMarks() async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Cleanup Confirmation"),
+      content: const Text(
+        "This will permanently delete the 'previous_marks' field "
+        "from ALL student documents.\n\n"
+        "Root level EP scores will NOT be touched.\n\n"
+        "Run this only ONCE. Are you sure?",
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text("Yes, Clean Up"),
+        ),
+      ],
+    ),
+  );
 
+  if (confirmed != true) return;
+
+  // Show progress dialog
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => const AlertDialog(
+      content: Row(
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(width: 20),
+          Text("Cleaning up..."),
+        ],
+      ),
+    ),
+  );
+
+  try {
+    // Fetch all student documents
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'student')
+        .get();
+
+    int cleaned = 0;
+    int skipped = 0;
+
+    // Process in batches of 500 (Firestore batch limit)
+    List<QueryDocumentSnapshot> docs = snapshot.docs;
+    for (int i = 0; i < docs.length; i += 400) {
+      final batchGroup = docs.sublist(
+        i,
+        i + 400 > docs.length ? docs.length : i + 400,
+      );
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var doc in batchGroup) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        if (data.containsKey('previous_marks')) {
+          // Delete ONLY the previous_marks field
+          batch.update(doc.reference, {
+            'previous_marks': FieldValue.delete(),
+          });
+          cleaned++;
+        } else {
+          skipped++;
+        }
+      }
+
+      await batch.commit();
+    }
+
+    // Close progress dialog
+    Navigator.pop(context);
+
+    // Show result
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "Cleanup done! $cleaned docs cleaned, $skipped already clean.",
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  } catch (e) {
+    Navigator.pop(context); // close progress dialog
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Cleanup failed: $e"),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+ 
+  // ════════════════════════════════════════════════════════════
+  // ★ NEW ADDITION 2: Upload Students from CSV
+  //   Expected CSV columns: regNo, name, section
+  //   Header row is auto-skipped. Batch tagged from [selectedBatch].
+  //   Uses batch writes for efficiency & atomicity.
+  // ════════════════════════════════════════════════════════════
+  Future<void> _uploadStudentsFromCSV() async {
+    try {
+      // 1. Let user pick a CSV file
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+ 
+      final bytes = result.files.first.bytes!;
+      final csvStr = utf8.decode(bytes);
+      final rows = const CsvToListConverter().convert(csvStr, eol: '\n');
+ 
+      if (rows.length < 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("CSV has no data rows.")),
+        );
+        return;
+      }
+ 
+      // 2. Parse headers (case-insensitive)
+      final headers = rows.first.map((e) => e.toString().trim().toLowerCase()).toList();
+      final dataRows = rows.skip(1).where((r) => r.length >= headers.length).toList();
+ 
+      // 3. Confirm before writing
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Confirm Upload"),
+          content: Text(
+            "Found ${dataRows.length} students.\n"
+            "They will be added to Batch $selectedBatch.\n\n"
+            "Columns detected: ${headers.join(', ')}",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("Upload"),
+            ),
+          ],
+        ),
+      );
+ 
+      if (confirmed != true) return;
+ 
+      // 4. Batch write to Firestore
+      final firestoreBatch = FirebaseFirestore.instance.batch();
+      int count = 0;
+ 
+      for (final row in dataRows) {
+        final Map<String, String> rowMap = {};
+        for (int i = 0; i < headers.length; i++) {
+          rowMap[headers[i]] = row[i].toString().trim();
+        }
+ 
+        final regNo = rowMap['regno'] ?? rowMap['reg no'] ?? rowMap['reg_no'] ?? '';
+        final name = rowMap['name'] ?? '';
+        final section = rowMap['section'] ?? 'Sec 1';
+ 
+        if (regNo.isEmpty || name.isEmpty) continue; // skip malformed rows
+ 
+        final docRef = FirebaseFirestore.instance.collection('users').doc();
+        firestoreBatch.set(docRef, {
+          'regNo': regNo,
+          'name': name,
+          'section': section,
+          'batch': selectedBatch,
+          'role': 'student',
+          'createdAt': FieldValue.serverTimestamp(),
+          // EP fields default to 0 — staff fill these in later
+        });
+        count++;
+      }
+ 
+      await firestoreBatch.commit();
+ 
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("$count students uploaded to Batch $selectedBatch ✓")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Upload failed: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+ 
+  // ════════════════════════════════════════════════════════════
+  // ORIGINAL: build() — UNCHANGED except the two new UI blocks
+  //           inserted before the DropdownButton (marked ★)
+  // ════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
-    // --- GOD MODE ROUTING ---
+    // --- GOD MODE ROUTING --- (ORIGINAL, UNCHANGED)
     if (currentViewMode == "staff") return _impersonate(const StaffDashboard());
     if (currentViewMode == "student") {
       // Logic to find a real ID is handled inside the StreamBuilder below
     }
-
-    double maxPoints = filterYear == "First Year" ? 40 : 
-                       filterYear == "THIRD SEMESTER" ? 80 : 
-                       filterYear == "FOURTH SEMESTER" ? 120 : 
-                       filterYear == "FIFTH SEMESTER" ? 160 : 200;
-
+ 
+    double maxPoints = filterYear == "First Year"
+        ? 40
+        : filterYear == "THIRD SEMESTER"
+            ? 80
+            : filterYear == "FOURTH SEMESTER"
+                ? 120
+                : filterYear == "FIFTH SEMESTER"
+                    ? 160
+                    : 200;
+ 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'student')
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
+        if (!snapshot.hasData) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+ 
+        // ── ORIGINAL data processing — UNCHANGED ──────────────
         double s1Sum = 0, s2Sum = 0;
         int s1Count = 0, s2Count = 0;
         String s1TopperName = "N/A", s2TopperName = "N/A";
@@ -708,13 +1063,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         List<Map<String, dynamic>> students = [];
         double batchHighest = 0;
         String? firstStudentId;
-
+ 
         for (var doc in snapshot.data!.docs) {
           var data = doc.data() as Map<String, dynamic>;
           int score = _calculateCumulativePoints(data, filterYear);
           if (score > batchHighest) batchHighest = score.toDouble();
           if (firstStudentId == null) firstStudentId = doc.id;
-
+ 
           var studentInfo = {
             'name': data['name'] ?? "Unknown",
             'regNo': data['regNo'] ?? "N/A",
@@ -722,24 +1077,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
             'section': data['section'] ?? "Sec 1",
           };
           students.add(studentInfo);
-
-          // Calculate Section Averages and Section Toppers
+ 
           if (studentInfo['section'] == "Sec 1") {
-            s1Sum += score; s1Count++;
-            if (score > s1TopperScore) { s1TopperScore = score; s1TopperName = studentInfo['name'] as String; }
+            s1Sum += score;
+            s1Count++;
+            if (score > s1TopperScore) {
+              s1TopperScore = score;
+              s1TopperName = studentInfo['name'] as String;
+            }
           } else {
-            s2Sum += score; s2Count++;
-            if (score > s2TopperScore) { s2TopperScore = score; s2TopperName = studentInfo['name'] as String; }
+            s2Sum += score;
+            s2Count++;
+            if (score > s2TopperScore) {
+              s2TopperScore = score;
+              s2TopperName = studentInfo['name'] as String;
+            }
           }
         }
-
-        if (currentViewMode == "student") return _impersonate(StudentDashboard(uid: firstStudentId ?? "sample_uid"));
-
+ 
+        if (currentViewMode == "student") {
+          return _impersonate(StudentDashboard(uid: firstStudentId ?? "sample_uid"));
+        }
+ 
         double s1Avg = s1Count > 0 ? s1Sum / s1Count : 0;
         double s2Avg = s2Count > 0 ? s2Sum / s2Count : 0;
         String leadingSection = s1Avg > s2Avg ? "SECTION 1" : "SECTION 2";
         double winPercent = ((s1Avg > s2Avg ? s1Avg : s2Avg) / maxPoints) * 100;
-
+        // ── end ORIGINAL data processing ──────────────────────
+ 
         return Scaffold(
           appBar: AppBar(
             title: const Text("Admin Batch Analytics"),
@@ -753,32 +1118,89 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   const PopupMenuItem(value: "student", child: Text("Student View")),
                 ],
               ),
-              IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()))),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: () => Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                ),
+              ),
             ],
           ),
+ 
+          // ORIGINAL FAB — UNCHANGED
+          floatingActionButton: FloatingActionButton(
+            onPressed: _showAddBatchDialog,
+            backgroundColor: Colors.blue.shade900,
+            child: const Icon(Icons.add_to_photos, color: Colors.white),
+          ),
+ 
           body: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              // 1. Comparison Winner Card
+ 
+              // ── ORIGINAL: Leading Section Card ─────────────────
               Card(
                 color: Colors.indigo.shade800,
                 child: ListTile(
                   leading: const Icon(Icons.workspace_premium, color: Colors.amber, size: 40),
-                  title: Text("LEADING: $leadingSection", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text("Avg Achievement: ${winPercent.toStringAsFixed(1)}%", style: const TextStyle(color: Colors.white70)),
+                  title: Text(
+                    "LEADING: $leadingSection",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    "Avg Achievement: ${winPercent.toStringAsFixed(1)}%",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                 ),
               ),
               const SizedBox(height: 25),
-
-              // 2. Semester Selector
+ 
+              // ★ NEW: Batch Selector chips (live from Firestore)
+              const Text(
+                "SELECT BATCH",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              _buildBatchSelector(),
+              const SizedBox(height: 12),
+ 
+              // ★ NEW: Upload Students CSV button
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton.icon(
+                  onPressed: _uploadStudentsFromCSV,
+                  icon: const Icon(Icons.upload_file),
+                  label: const Text("UPLOAD STUDENTS (CSV)"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+ 
+              // ── ORIGINAL: Semester Selector ────────────────────
               DropdownButton<String>(
-                value: filterYear, isExpanded: true,
-                items: ["First Year", "THIRD SEMESTER", "FOURTH SEMESTER", "FIFTH SEMESTER", "SIXTH SEMESTER"].map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
-                onChanged: (v) => setState(() { filterYear = v!; showTable = false; }),
+                value: filterYear,
+                isExpanded: true,
+                items: [
+                  "First Year",
+                  "THIRD SEMESTER",
+                  "FOURTH SEMESTER",
+                  "FIFTH SEMESTER",
+                  "SIXTH SEMESTER",
+                ]
+                    .map((y) => DropdownMenuItem(value: y, child: Text(y)))
+                    .toList(),
+                onChanged: (v) => setState(() {
+                  filterYear = v!;
+                  showTable = false;
+                }),
               ),
               const SizedBox(height: 25),
-
-              // 3. Section Topper Gallery
+ 
+              // ── ORIGINAL: Section Topper Gallery ───────────────
               const Text("SECTION TOPPERS", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
               Row(children: [
@@ -787,28 +1209,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 Expanded(child: _performerCard("SEC 2 TOPPER", s2TopperName, s2TopperScore)),
               ]),
               const SizedBox(height: 30),
-
-              // 4. Bar Chart Comparison
-              
+ 
+              // ── ORIGINAL: Bar Chart ─────────────────────────────
               const Text("SECTION ACHIEVEMENT RATIO (%)", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
               _buildBarChart(s1Avg, s2Avg, maxPoints),
-              
               const Divider(height: 50),
-
-              // 5. Verification Table Toggle
+ 
+              // ── ORIGINAL: Verification Table Toggle ────────────
               ElevatedButton.icon(
                 onPressed: () => setState(() => showTable = !showTable),
                 icon: Icon(showTable ? Icons.visibility_off : Icons.analytics),
                 label: Text(showTable ? "HIDE DATA TABLE" : "GENERATE VERIFICATION TABLE"),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade800,
+                  foregroundColor: Colors.white,
+                ),
               ),
-
+ 
               if (showTable) ...[
                 const SizedBox(height: 20),
-                _buildSectionTable("SECTION 1 VERIFICATION", students.where((s) => s['section'] == "Sec 1").toList(), batchHighest, Colors.blue),
+                _buildSectionTable(
+                  "SECTION 1 VERIFICATION",
+                  students.where((s) => s['section'] == "Sec 1").toList(),
+                  batchHighest,
+                  Colors.blue,
+                ),
                 const SizedBox(height: 30),
-                _buildSectionTable("SECTION 2 VERIFICATION", students.where((s) => s['section'] == "Sec 2").toList(), batchHighest, Colors.orange),
+                _buildSectionTable(
+                  "SECTION 2 VERIFICATION",
+                  students.where((s) => s['section'] == "Sec 2").toList(),
+                  batchHighest,
+                  Colors.orange,
+                ),
               ],
             ],
           ),
@@ -816,20 +1249,96 @@ class _AdminDashboardState extends State<AdminDashboard> {
       },
     );
   }
-
-  // --- UI COMPONENTS ---
-
-  Widget _impersonate(Widget child) => Stack(children: [child, Positioned(bottom: 20, right: 20, child: FloatingActionButton.extended(onPressed: () => setState(() => currentViewMode = "admin"), label: const Text("Exit Preview"), icon: const Icon(Icons.admin_panel_settings), backgroundColor: Colors.redAccent))]);
-
-  Widget _buildBarChart(double s1, double s2, double max) => SizedBox(height: 180, child: BarChart(BarChartData(maxY: max, barGroups: [BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1, color: Colors.blue, width: 40)]), BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2, color: Colors.orange, width: 40)])], titlesData: FlTitlesData(bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2")))))));
-
-  Widget _buildSectionTable(String title, List<Map<String, dynamic>> data, double topper, Color color) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 10), DataTable(headingRowColor: MaterialStateProperty.all(color.withOpacity(0.1)), columns: const [DataColumn(label: Text("Name")), DataColumn(label: Text("EP")), DataColumn(label: Text("%"))], rows: data.map((s) { double p = topper > 0 ? (s['score'] / topper) * 100 : 0; return DataRow(cells: [DataCell(Text(s['name'], style: const TextStyle(fontSize: 11))), DataCell(Text("${s['score']}")), DataCell(Text("${p.toStringAsFixed(1)}%"))]); }).toList())]);
-
-  Widget _performerCard(String title, String name, int score) => Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)), Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)), Text("$score EP", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900))]));
+ 
+  // ════════════════════════════════════════════════════════════
+  // ORIGINAL: UI Component helpers — ALL UNCHANGED
+  // ════════════════════════════════════════════════════════════
+ 
+  Widget _impersonate(Widget child) => Stack(
+        children: [
+          child,
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: FloatingActionButton.extended(
+              onPressed: () => setState(() => currentViewMode = "admin"),
+              label: const Text("Exit Preview"),
+              icon: const Icon(Icons.admin_panel_settings),
+              backgroundColor: Colors.redAccent,
+            ),
+          ),
+        ],
+      );
+ 
+  Widget _buildBarChart(double s1, double s2, double max) => SizedBox(
+        height: 180,
+        child: BarChart(
+          BarChartData(
+            maxY: max,
+            barGroups: [
+              BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1, color: Colors.blue, width: 40)]),
+              BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2, color: Colors.orange, width: 40)]),
+            ],
+            titlesData: FlTitlesData(
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2"),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+ 
+  Widget _buildSectionTable(
+    String title,
+    List<Map<String, dynamic>> data,
+    double topper,
+    Color color,
+  ) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+          const SizedBox(height: 10),
+          DataTable(
+            headingRowColor: MaterialStateProperty.all(color.withOpacity(0.1)),
+            columns: const [
+              DataColumn(label: Text("Name")),
+              DataColumn(label: Text("EP")),
+              DataColumn(label: Text("%")),
+            ],
+            rows: data.map((s) {
+              double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
+              return DataRow(cells: [
+                DataCell(Text(s['name'], style: const TextStyle(fontSize: 11))),
+                DataCell(Text("${s['score']}")),
+                DataCell(Text("${p.toStringAsFixed(1)}%")),
+              ]);
+            }).toList(),
+          ),
+        ],
+      );
+ 
+  Widget _performerCard(String title, String name, int score) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.amber),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)),
+            Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+            Text("$score EP", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+          ],
+        ),
+      );
 }
-
-
-
+ 
 
 
 // --- STAFF DASHBOARD ---
@@ -841,10 +1350,13 @@ class StaffDashboard extends StatefulWidget {
 
 class _StaffDashboardState extends State<StaffDashboard> {
   final _reg = TextEditingController();
+  final _searchVerification = TextEditingController();
   // Renamed default to match your new request
   String activeYear = "First Year"; 
   final Map<String, TextEditingController> _ctrls = {};
   bool _isSaving = false;
+  String sortBy = 'name'; // 'name', 'score', or 'percentage'
+  bool sortAscending = true;
 
   @override
   void initState() {
@@ -932,8 +1444,16 @@ class _StaffDashboardState extends State<StaffDashboard> {
     setState(() => _isSaving = false);
   }
 
+  // --- OPEN VERIFICATION PAGE (NEW UI) ---
+  void _openVerificationPage() {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => VerificationPage(activeYear: activeYear)
+    ));
+  }
+
   // --- VERIFICATION REPORT MODAL ---
   void _showVerificationReport() {
+    _searchVerification.clear();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -961,17 +1481,50 @@ class _StaffDashboardState extends State<StaffDashboard> {
               };
             }).toList();
 
-            return ListView(
-              controller: controller,
-              padding: const EdgeInsets.all(20),
-              children: [
-                Text("${activeYear} VERIFICATION", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
-                Text("Reference Topper: ${batchHighest.toInt()} EP", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                const Divider(height: 30),
-                _buildTable("SECTION 1", students.where((s) => s['section'] == "Sec 1").toList(), batchHighest),
-                const SizedBox(height: 30),
-                _buildTable("SECTION 2", students.where((s) => s['section'] == "Sec 2").toList(), batchHighest),
-              ],
+            return StatefulBuilder(
+              builder: (context, setState) {
+                // Filter students based on search query
+                String searchQuery = _searchVerification.text.toLowerCase();
+                List<Map<String, dynamic>> filteredStudents = students.where((s) {
+                  return (s['name'] as String).toLowerCase().contains(searchQuery);
+                }).toList();
+
+                return ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    Text("${activeYear} VERIFICATION", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+                    Text("Reference Topper: ${batchHighest.toInt()} EP", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 15),
+                    TextField(
+                      controller: _searchVerification,
+                      decoration: InputDecoration(
+                        hintText: "Search student name...",
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchVerification.text.isNotEmpty 
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchVerification.clear();
+                                setState(() {});
+                              },
+                            )
+                          : null,
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 15),
+                    if (filteredStudents.isEmpty && searchQuery.isNotEmpty)
+                      const Center(child: Text("No students found", style: TextStyle(color: Colors.grey))),
+                    const Divider(height: 30),
+                    _buildTable("SECTION 1", filteredStudents.where((s) => s['section'] == "Sec 1").toList(), batchHighest),
+                    const SizedBox(height: 30),
+                    _buildTable("SECTION 2", filteredStudents.where((s) => s['section'] == "Sec 2").toList(), batchHighest),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -980,35 +1533,90 @@ class _StaffDashboardState extends State<StaffDashboard> {
   }
 
   Widget _buildTable(String title, List<Map<String, dynamic>> data, double topper) {
+    // Sort data based on current sort settings
+    List<Map<String, dynamic>> sortedData = List.from(data);
+    sortedData.sort((a, b) {
+      int comparison = 0;
+      if (sortBy == 'name') {
+        comparison = (a['name'] as String).compareTo(b['name'] as String);
+      } else if (sortBy == 'score') {
+        comparison = (a['score'] as int).compareTo(b['score'] as int);
+      } else if (sortBy == 'percentage') {
+        double percentA = topper > 0 ? (a['score'] / topper) * 100 : 0;
+        double percentB = topper > 0 ? (b['score'] / topper) * 100 : 0;
+        comparison = percentA.compareTo(percentB);
+      }
+      return sortAscending ? comparison : -comparison;
+    });
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-      const SizedBox(height: 10),
-      Table(
-        border: TableBorder.all(color: Colors.grey.shade300),
-        columnWidths: const {0: FlexColumnWidth(2.5), 1: FlexColumnWidth(0.8), 2: FlexColumnWidth(1), 3: FlexColumnWidth(1.5)},
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          TableRow(
-            decoration: BoxDecoration(color: Colors.blue.shade50),
-            children: const [
-              Padding(padding: EdgeInsets.all(8), child: Text("Name", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-              Padding(padding: EdgeInsets.all(8), child: Text("EP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-              Padding(padding: EdgeInsets.all(8), child: Text("%", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-              Padding(padding: EdgeInsets.all(8), child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Wrap(
+            spacing: 5,
+            children: [
+              FilterChip(
+                label: const Text('Name'),
+                selected: sortBy == 'name',
+                onSelected: (_) => setState(() => sortBy = 'name'),
+              ),
+              FilterChip(
+                label: const Text('Score'),
+                selected: sortBy == 'score',
+                onSelected: (_) => setState(() => sortBy = 'score'),
+              ),
+              FilterChip(
+                label: const Text('%'),
+                selected: sortBy == 'percentage',
+                onSelected: (_) => setState(() => sortBy = 'percentage'),
+              ),
+              IconButton(
+                icon: Icon(sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
+                onPressed: () => setState(() => sortAscending = !sortAscending),
+                tooltip: sortAscending ? 'Ascending' : 'Descending',
+              ),
             ],
           ),
-          ...data.map((s) {
-            double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
-            bool ok = p >= 40.0;
-            return TableRow(children: [
-              Padding(padding: EdgeInsets.all(8), child: Text(s['name'], style: const TextStyle(fontSize: 10))),
-              Padding(padding: EdgeInsets.all(8), child: Text("${s['score']}", style: const TextStyle(fontSize: 10))),
-              Padding(padding: EdgeInsets.all(8), child: Text("${p.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 10))),
-              Padding(padding: const EdgeInsets.all(8), child: Text(ok ? "ELIGIBLE" : "NOT ELIGIBLE",
-                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: ok ? Colors.green : Colors.red))),
-            ]);
-          }),
         ],
       ),
+      const SizedBox(height: 10),
+      ...sortedData.map((s) {
+        double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
+        bool ok = p >= 40.0;
+        return GestureDetector(
+          onTap: () async {
+            // Fetch full student data for editing
+            var q = await FirebaseFirestore.instance.collection('users').where('name', isEqualTo: s['name']).get();
+            if (q.docs.isNotEmpty && mounted) {
+              var studentDoc = q.docs.first;
+              Navigator.push(context, MaterialPageRoute(
+                builder: (_) => StudentVerificationPage(studentData: studentDoc.data() as Map<String, dynamic>, docId: studentDoc.id, activeYear: activeYear)
+              ));
+            }
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+              color: ok ? Colors.green.shade50 : Colors.red.shade50,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: Text(s['name'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                Text("${s['score']} EP", style: const TextStyle(fontSize: 11)),
+                SizedBox(width: 50, child: Text("${p.toStringAsFixed(1)}%", textAlign: TextAlign.center, style: const TextStyle(fontSize: 10))),
+                Chip(label: Text(ok ? "ELIGIBLE" : "LOCKED", style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)), 
+                  backgroundColor: ok ? Colors.green : Colors.red, labelStyle: const TextStyle(color: Colors.white))
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     ]);
   }
 
@@ -1030,7 +1638,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
             onChanged: (v) => setState(() { activeYear = v!; _initControllers(); }),
           ),
           const SizedBox(height: 10),
-          SizedBox(width: double.infinity, height: 50, child: OutlinedButton.icon(onPressed: _showVerificationReport, icon: const Icon(Icons.analytics_outlined), label: const Text("GENERATE VERIFICATION TABLE"))),
+          SizedBox(width: double.infinity, height: 50, child: OutlinedButton.icon(onPressed: _openVerificationPage, icon: const Icon(Icons.analytics_outlined), label: const Text("GENERATE VERIFICATION TABLE"))),
           const Divider(height: 40),
           TextField(controller: _reg, decoration: InputDecoration(labelText: "Student Reg No", suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: _search), border: const OutlineInputBorder())),
           const SizedBox(height: 20),
@@ -1041,6 +1649,465 @@ class _StaffDashboardState extends State<StaffDashboard> {
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isSaving ? null : _update, child: _isSaving ? const CircularProgressIndicator() : const Text("SAVE UPDATES"))),
         ]),
+      ),
+    );
+  }
+}
+
+// --- STUDENT VERIFICATION PAGE ---
+class StudentVerificationPage extends StatefulWidget {
+  final Map<String, dynamic> studentData;
+  final String docId;
+  final String activeYear;
+
+  const StudentVerificationPage({
+    super.key,
+    required this.studentData,
+    required this.docId,
+    required this.activeYear,
+  });
+
+  @override
+  State<StudentVerificationPage> createState() => _StudentVerificationPageState();
+}
+
+class _StudentVerificationPageState extends State<StudentVerificationPage> {
+  late Map<String, TextEditingController> _controllers;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initControllers();
+  }
+
+  void _initControllers() {
+    _controllers = {};
+    Map<String, int> limits = _getLimitsForYear(widget.activeYear);
+    limits.forEach((key, _) {
+      _controllers[key] = TextEditingController(text: (widget.studentData[key] ?? 0).toString());
+    });
+  }
+
+  Map<String, int> _getLimitsForYear(String year) {
+    switch (year) {
+      case "First Year": return sem2Limits;
+      case "THIRD SEMESTER": return sem3Limits;
+      case "FOURTH SEMESTER": return sem4Limits;
+      case "FIFTH SEMESTER": return sem5Limits;
+      case "SIXTH SEMESTER": return sem6Limits;
+      default: return sem2Limits;
+    }
+  }
+
+  Future<void> _saveChanges() async {
+    setState(() => _isSaving = true);
+    
+    Map<String, int> updates = {};
+    Map<String, int> limits = _getLimitsForYear(widget.activeYear);
+    bool hasError = false;
+    String errorField = "";
+
+    _controllers.forEach((key, controller) {
+      int value = int.tryParse(controller.text) ?? 0;
+      if (value > (limits[key] ?? 0)) {
+        hasError = true;
+        errorField = key.toUpperCase();
+      }
+      updates[key] = value;
+    });
+
+    if (hasError) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $errorField exceeds maximum limit!"), backgroundColor: Colors.red)
+        );
+      }
+      setState(() => _isSaving = false);
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(widget.docId).update(updates);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Student record updated successfully!"), backgroundColor: Colors.green)
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red)
+        );
+      }
+    }
+    setState(() => _isSaving = false);
+  }
+
+  @override
+  void dispose() {
+    _controllers.forEach((_, controller) => controller.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Map<String, int> limits = _getLimitsForYear(widget.activeYear);
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("${widget.studentData['name']} - ${widget.activeYear}"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _isSaving ? null : _saveChanges,
+            tooltip: 'Save Changes',
+          )
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(15),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Student Information", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 10),
+                    Text("Name: ${widget.studentData['name'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
+                    Text("Reg No: ${widget.studentData['regNo'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
+                    Text("Section: ${widget.studentData['section'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 25),
+            Text("Edit ${widget.activeYear} Points", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 15),
+            ..._controllers.entries.map((e) => Padding(
+              padding: const EdgeInsets.only(bottom: 15),
+              child: TextField(
+                controller: e.value,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: "${e.key.toUpperCase()} (Max: ${limits[e.key]})",
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () => e.value.clear(),
+                  ),
+                ),
+              ),
+            )),
+            const SizedBox(height: 25),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _saveChanges,
+                icon: _isSaving ? const SizedBox.shrink() : const Icon(Icons.save),
+                label: _isSaving ? const CircularProgressIndicator() : const Text("SAVE ALL CHANGES"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- VERIFICATION PAGE (NEW UI WITH TABS) ---
+class VerificationPage extends StatefulWidget {
+  final String activeYear;
+  const VerificationPage({super.key, required this.activeYear});
+
+  @override
+  State<VerificationPage> createState() => _VerificationPageState();
+}
+
+class _VerificationPageState extends State<VerificationPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  String sortBy = 'name';
+  bool sortAscending = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  int _calculateCumulativePoints(Map<String, dynamic> d, String year) {
+    int s2 = _sum(d, sem2Limits);
+    int s3 = _sum(d, sem3Limits);
+    int s4 = _sum(d, sem4Limits);
+    int s5 = _sum(d, sem5Limits);
+    int s6 = _sum(d, sem6Limits);
+
+    if (year == "First Year") return s2;
+    if (year == "THIRD SEMESTER") return s2 + s3;
+    if (year == "FOURTH SEMESTER") return s2 + s3 + s4;
+    if (year == "FIFTH SEMESTER") return s2 + s3 + s4 + s5;
+    return s2 + s3 + s4 + s5 + s6;
+  }
+
+  int _sum(Map<String, dynamic> d, Map<String, int> l) {
+    int t = 0;
+    l.forEach((k, _) {
+      var val = d[k] ?? 0;
+      t += (val is int) ? val : (val as num).toInt();
+    });
+    return t;
+  }
+
+  List<Map<String, dynamic>> _sortStudents(List<Map<String, dynamic>> data) {
+    List<Map<String, dynamic>> sortedData = List.from(data);
+    sortedData.sort((a, b) {
+      int comparison = 0;
+      if (sortBy == 'name') {
+        comparison = (a['name'] as String).compareTo(b['name'] as String);
+      } else if (sortBy == 'score') {
+        comparison = (a['score'] as int).compareTo(b['score'] as int);
+      } else if (sortBy == 'percentage') {
+        double percentA = (a['topper'] as double) > 0 ? (a['score'] / a['topper']) * 100 : 0;
+        double percentB = (b['topper'] as double) > 0 ? (b['score'] / b['topper']) * 100 : 0;
+        comparison = percentA.compareTo(percentB);
+      }
+      return sortAscending ? comparison : -comparison;
+    });
+    return sortedData;
+  }
+
+  Widget _buildSectionContent(String section, double topperScore, List<Map<String, dynamic>> allStudents) {
+    String searchQuery = _searchController.text.toLowerCase();
+    List<Map<String, dynamic>> sectionStudents = allStudents
+        .where((s) => s['section'] == section)
+        .where((s) => (s['name'] as String).toLowerCase().contains(searchQuery))
+        .toList();
+    
+    sectionStudents = _sortStudents(sectionStudents);
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: section == "Sec 1" ? Colors.blue.shade100 : Colors.green.shade100,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: section == "Sec 1" ? Colors.blue.shade700 : Colors.green.shade700, width: 2),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(section, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+              Chip(
+                label: Text("Topper: ${topperScore.toInt()} EP", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                backgroundColor: section == "Sec 1" ? Colors.blue : Colors.green,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 15),
+        Card(
+          color: Colors.blue.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("$section VERIFICATION", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
+                const SizedBox(height: 8),
+                Text("Total Students: ${sectionStudents.length}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text("Reference Topper: ${topperScore.toInt()} EP", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 15),
+        // Sort Controls
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('By Name'),
+              selected: sortBy == 'name',
+              onSelected: (_) => setState(() => sortBy = 'name'),
+            ),
+            FilterChip(
+              label: const Text('By Score'),
+              selected: sortBy == 'score',
+              onSelected: (_) => setState(() => sortBy = 'score'),
+            ),
+            FilterChip(
+              label: const Text('By %'),
+              selected: sortBy == 'percentage',
+              onSelected: (_) => setState(() => sortBy = 'percentage'),
+            ),
+            ActionChip(
+              label: Icon(sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 16),
+              onPressed: () => setState(() => sortAscending = !sortAscending),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        if (sectionStudents.isEmpty)
+          const Center(child: Text("No students found", style: TextStyle(color: Colors.grey)))
+        else
+          ...sectionStudents.map((student) {
+            double percentage = topperScore > 0 ? (student['score'] / topperScore) * 100 : 0;
+            bool isEligible = percentage >= 40.0;
+            
+            return GestureDetector(
+              onTap: () async {
+                var q = await FirebaseFirestore.instance.collection('users').where('name', isEqualTo: student['name']).get();
+                if (q.docs.isNotEmpty && mounted) {
+                  var studentDoc = q.docs.first;
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => StudentVerificationPage(
+                      studentData: studentDoc.data() as Map<String, dynamic>,
+                      docId: studentDoc.id,
+                      activeYear: widget.activeYear,
+                    ),
+                  ));
+                }
+              },
+              child: Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                color: isEligible ? Colors.green.shade50 : Colors.red.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(student['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 4),
+                            Text("${student['score']} EP • ${percentage.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                      Chip(
+                        label: Text(isEligible ? "ELIGIBLE" : "LOCKED", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                        backgroundColor: isEligible ? Colors.green : Colors.red,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0C4A82),
+        title: Text("${widget.activeYear} Verification", style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(52),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(15), topRight: Radius.circular(15)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 5, offset: const Offset(0, 2))],
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: const Color(0xFF004A99),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              labelColor: Colors.white,
+              unselectedLabelColor: const Color(0xFF0C4A82),
+              labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+              unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              tabs: const [
+                Tab(text: "SECTION 1"),
+                Tab(text: "SECTION 2"),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(15),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: "Search student name...",
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+                double batchHighest = 0;
+                List<Map<String, dynamic>> students = [];
+
+                for (var doc in snapshot.data!.docs) {
+                  var d = doc.data() as Map<String, dynamic>;
+                  int score = _calculateCumulativePoints(d, widget.activeYear);
+                  if (score > batchHighest) batchHighest = score.toDouble();
+                  
+                  students.add({
+                    'name': d['name'] ?? 'N/A',
+                    'section': d['section'] ?? 'Sec 1',
+                    'score': score,
+                    'topper': batchHighest,
+                  });
+                }
+
+                return TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildSectionContent("Sec 1", batchHighest, students),
+                    _buildSectionContent("Sec 2", batchHighest, students),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
