@@ -5,11 +5,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'splash_screen.dart'; 
-import 'firebase_options.dart'; // Add this line at the top
+import 'firebase_options.dart'; 
 import 'package:csv/csv.dart';
 import 'dart:html' as html;
- import 'package:file_picker/file_picker.dart';
- import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'services/error_logger.dart';
 
 void main() async {
   // 1. Ensure the engine is ready
@@ -169,6 +171,11 @@ class _LoginPageState extends State<LoginPage> {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => page));
       }
     } catch (e) {
+      await ErrorLogger.logError(
+        errorName: 'LoginError',
+        message: e.toString(),
+        location: 'LoginPage._login()',
+      );
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Login Error: $e")));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -368,6 +375,135 @@ Future<void> _logout() async {
   }
 }
 
+  // Password Change Method
+  Future<void> _changePassword() async {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool showOldPassword = false;
+    bool showNewPassword = false;
+    bool showConfirmPassword = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Change Password"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: oldPasswordController,
+                  obscureText: !showOldPassword,
+                  decoration: InputDecoration(
+                    labelText: "Current Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showOldPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showOldPassword = !showOldPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: !showNewPassword,
+                  decoration: InputDecoration(
+                    labelText: "New Password (min 6 chars)",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showNewPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showNewPassword = !showNewPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: !showConfirmPassword,
+                  decoration: InputDecoration(
+                    labelText: "Confirm New Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showConfirmPassword = !showConfirmPassword),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final old = oldPasswordController.text.trim();
+                final newPwd = newPasswordController.text.trim();
+                final confirm = confirmPasswordController.text.trim();
+
+                if (old.isEmpty || newPwd.isEmpty || confirm.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("All fields are required")),
+                  );
+                  return;
+                }
+
+                if (newPwd.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("New password must be at least 6 characters")),
+                  );
+                  return;
+                }
+
+                if (newPwd != confirm) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Passwords do not match")),
+                  );
+                  return;
+                }
+
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user == null || user.email == null) throw Exception("User not logged in");
+
+                  // Reauthenticate
+                  await user.reauthenticateWithCredential(
+                    EmailAuthProvider.credential(email: user.email!, password: old),
+                  );
+
+                  // Update password
+                  await user.updatePassword(newPwd);
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Password changed successfully")),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error: ${e.toString().contains('wrong-password') ? 'Incorrect current password' : 'Failed to change password'}")),
+                  );
+                }
+              },
+              child: const Text("Change"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   int _sum(Map<String, dynamic> d, Map<String, int> l) {
     int t = 0;
     l.forEach((k, _) {
@@ -529,6 +665,11 @@ Future<void> _logout() async {
   // Metallic Silver/White text for clear contrast
   foregroundColor: const Color(0xFFF3E8F1), 
   actions: [
+    IconButton(
+      icon: const Icon(Icons.lock),
+      onPressed: _changePassword,
+      tooltip: 'Change Password',
+    ),
     IconButton(
       icon: const Icon(Icons.logout),
       onPressed: _logout,
@@ -703,8 +844,331 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // Export to CSV
+  // Password Change
   // ════════════════════════════════════════════════════════════
+  Future<void> _changePassword() async {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool showOldPassword = false;
+    bool showNewPassword = false;
+    bool showConfirmPassword = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Change Password"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: oldPasswordController,
+                  obscureText: !showOldPassword,
+                  decoration: InputDecoration(
+                    labelText: "Current Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showOldPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showOldPassword = !showOldPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: !showNewPassword,
+                  decoration: InputDecoration(
+                    labelText: "New Password (min 6 chars)",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showNewPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showNewPassword = !showNewPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: !showConfirmPassword,
+                  decoration: InputDecoration(
+                    labelText: "Confirm New Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showConfirmPassword = !showConfirmPassword),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final old = oldPasswordController.text.trim();
+                final newPwd = newPasswordController.text.trim();
+                final confirm = confirmPasswordController.text.trim();
+
+                if (old.isEmpty || newPwd.isEmpty || confirm.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("All fields are required")),
+                  );
+                  return;
+                }
+
+                if (newPwd.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("New password must be at least 6 characters")),
+                  );
+                  return;
+                }
+
+                if (newPwd != confirm) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Passwords do not match")),
+                  );
+                  return;
+                }
+
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user == null || user.email == null) throw Exception("User not logged in");
+
+                  // Reauthenticate
+                  await user.reauthenticateWithCredential(
+                    EmailAuthProvider.credential(email: user.email!, password: old),
+                  );
+
+                  // Update password
+                  await user.updatePassword(newPwd);
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Password changed successfully")),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error: ${e.toString().contains('wrong-password') ? 'Incorrect current password' : 'Failed to change password'}")),
+                  );
+                }
+              },
+              child: const Text("Change"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // Create User (Staff/Admin) via Cloud Function
+  // ════════════════════════════════════════════════════════════
+  Future<void> _showCreateUserDialog() async {
+    final TextEditingController emailController = TextEditingController();
+    final TextEditingController passwordController = TextEditingController();
+    final TextEditingController nameController = TextEditingController();
+    String selectedRole = 'staff';
+    final TextEditingController batchController = TextEditingController();
+    final TextEditingController sectionController = TextEditingController();
+    bool _isCreating = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Create New User Account"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Email Field
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(
+                    labelText: "Email",
+                    hintText: "user@example.com",
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+
+                // Name Field
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: "Full Name",
+                    hintText: "John Doe",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Role Dropdown
+                DropdownButton<String>(
+                  value: selectedRole,
+                  isExpanded: true,
+                  items: ['staff', 'admin', 'student'].map((role) {
+                    return DropdownMenuItem(
+                      value: role,
+                      child: Text(role.toUpperCase()),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() => selectedRole = value ?? 'staff');
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // Batch Field (for staff and students)
+                if (selectedRole == 'student' || selectedRole == 'staff')
+                  TextField(
+                    controller: batchController,
+                    decoration: InputDecoration(
+                      labelText: "Batch",
+                      hintText: "25",
+                      border: const OutlineInputBorder(),
+                      helperText: selectedRole == 'staff' ? "This staff will see only this batch's students" : null,
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                if (selectedRole == 'student' || selectedRole == 'staff') const SizedBox(height: 12),
+
+                // Section Field (for students only)
+                if (selectedRole == 'student')
+                  TextField(
+                    controller: sectionController,
+                    decoration: const InputDecoration(
+                      labelText: "Section",
+                      hintText: "A",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                if (selectedRole == 'student') const SizedBox(height: 12),
+
+                // Password Field
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: "Temporary Password",
+                    hintText: "Min. 6 characters",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Info text
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    "After account creation, share the email and password with the user. They should change the password on first login.",
+                    style: TextStyle(fontSize: 12, color: Colors.blue),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isCreating ? null : () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: _isCreating
+                  ? null
+                  : () async {
+                      if (emailController.text.isEmpty || 
+                          nameController.text.isEmpty || 
+                          passwordController.text.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Fill in all required fields")),
+                        );
+                        return;
+                      }
+
+                      setState(() => _isCreating = true);
+
+                      try {
+                        // Call Cloud Function
+                        final response = await http.post(
+                          Uri.parse('https://us-central1-cit-dept-dashboard.cloudfunctions.net/createUser'),
+                          headers: {'Content-Type': 'application/json'},
+                          body: jsonEncode({
+                            'email': emailController.text.toLowerCase(),
+                            'password': passwordController.text,
+                            'name': nameController.text,
+                            'role': selectedRole,
+                            if (selectedRole == 'student' || selectedRole == 'staff') 'batch': batchController.text,
+                            if (selectedRole == 'student') 'section': sectionController.text,
+                          }),
+                        );
+
+                        if (!mounted) return;
+
+                        if (response.statusCode == 201 || response.statusCode == 200) {
+                          final result = jsonDecode(response.body);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(result['message'] ?? 'User created successfully'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          Navigator.pop(context);
+                        } else {
+                          final error = jsonDecode(response.body);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text("Error: ${error['error'] ?? 'Failed to create user'}"),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text("Network error: $e"),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => _isCreating = false);
+                      }
+                    },
+              child: _isCreating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text("Create User"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _exportToCSV(List<Map<String, dynamic>> students) {
     List<List<dynamic>> rows = [];
     rows.add(["Register No", "Name", "Section", "Batch", "Total EP"]);
@@ -718,9 +1182,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ..click();
   }
 
-  // ════════════════════════════════════════════════════════════
-  // Cumulative Point Summation
-  // ════════════════════════════════════════════════════════════
   int _calculateCumulativePoints(Map<String, dynamic> d, String filter) {
     int s2 = _sum(d, sem2Limits);
     int s3 = _sum(d, sem3Limits);
@@ -743,15 +1204,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return t;
   }
 
-  // ════════════════════════════════════════════════════════════
-  // Batch Selector Chips
-  // ════════════════════════════════════════════════════════════
+ 
   Widget _buildBatchSelector() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('batches')
           .where('active', isEqualTo: true)
-          .orderBy('code')
+         
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -879,6 +1338,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
         SnackBar(content: Text("$count students uploaded to Batch $selectedBatch ✓")),
       );
     } catch (e) {
+      await ErrorLogger.logError(
+        errorName: 'CSVUploadError',
+        message: e.toString(),
+        location: 'AdminDashboard._uploadStudentsFromCSV()',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Upload failed: $e"), backgroundColor: Colors.red),
       );
@@ -1175,6 +1639,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
           appBar: AppBar(
             title: const Text("Admin Batch Analytics"),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.person_add),
+                tooltip: "Create User",
+                onPressed: _showCreateUserDialog,
+              ),
+              IconButton(
+                icon: const Icon(Icons.lock),
+                onPressed: _changePassword,
+                tooltip: 'Change Password',
+              ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.account_tree_outlined, color: Colors.blue),
                 onSelected: (v) => setState(() => currentViewMode = v),
@@ -1393,11 +1867,176 @@ class _StaffDashboardState extends State<StaffDashboard> {
   bool _isSaving = false;
   String sortBy = 'name'; // 'name', 'score', or 'percentage'
   bool sortAscending = true;
+  
+  // NEW: Staff batch assignment
+  String? _staffBatch;
+  bool _batchLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _initControllers();
+    _loadStaffBatch();
+  }
+
+  // NEW: Load staff's assigned batch from Firestore
+  Future<void> _loadStaffBatch() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || user.email == null) return;
+      
+      // Query by email instead of UID
+      final query = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', isEqualTo: user.email)
+          .limit(1)
+          .get();
+      
+      if (query.docs.isNotEmpty) {
+        final batch = query.docs.first['batch'];
+        debugPrint("DEBUG: Loaded batch from Firestore: $batch (type: ${batch.runtimeType})");
+        setState(() {
+          _staffBatch = batch?.toString();
+          debugPrint("DEBUG: _staffBatch set to: $_staffBatch");
+          _batchLoaded = true;
+        });
+      } else {
+        debugPrint("DEBUG: Staff document not found with email: ${user.email}");
+        setState(() => _batchLoaded = true);
+      }
+    } catch (e) {
+      debugPrint("Error loading staff batch: $e");
+      setState(() => _batchLoaded = true);
+    }
+  }
+
+  // Password Change Method
+  Future<void> _changePassword() async {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool showOldPassword = false;
+    bool showNewPassword = false;
+    bool showConfirmPassword = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Change Password"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: oldPasswordController,
+                  obscureText: !showOldPassword,
+                  decoration: InputDecoration(
+                    labelText: "Current Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showOldPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showOldPassword = !showOldPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: !showNewPassword,
+                  decoration: InputDecoration(
+                    labelText: "New Password (min 6 chars)",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showNewPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showNewPassword = !showNewPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: !showConfirmPassword,
+                  decoration: InputDecoration(
+                    labelText: "Confirm New Password",
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        showConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => showConfirmPassword = !showConfirmPassword),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final old = oldPasswordController.text.trim();
+                final newPwd = newPasswordController.text.trim();
+                final confirm = confirmPasswordController.text.trim();
+
+                if (old.isEmpty || newPwd.isEmpty || confirm.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("All fields are required")),
+                  );
+                  return;
+                }
+
+                if (newPwd.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("New password must be at least 6 characters")),
+                  );
+                  return;
+                }
+
+                if (newPwd != confirm) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Passwords do not match")),
+                  );
+                  return;
+                }
+
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user == null || user.email == null) throw Exception("User not logged in");
+
+                  // Reauthenticate
+                  await user.reauthenticateWithCredential(
+                    EmailAuthProvider.credential(email: user.email!, password: old),
+                  );
+
+                  // Update password
+                  await user.updatePassword(newPwd);
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Password changed successfully")),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error: ${e.toString().contains('wrong-password') ? 'Incorrect current password' : 'Failed to change password'}")),
+                  );
+                }
+              },
+              child: const Text("Change"),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // --- 1. DYNAMIC LIMITS & WRITE ACCESS ---
@@ -1444,46 +2083,169 @@ class _StaffDashboardState extends State<StaffDashboard> {
 
   // --- MARKS ENTRY SEARCH & UPDATE ---
   void _search() async {
-    var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
-    if (q.docs.isNotEmpty) {
-      var data = q.docs.first.data();
-      setState(() => _ctrls.forEach((k, v) => v.text = (data[k] ?? 0).toString()));
-    } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student not found")));
+    try {
+      String searchQuery = _reg.text.trim();
+      if (searchQuery.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please enter a registration number or name")),
+        );
+        return;
+      }
+
+      // First: Try searching by regNo
+      var q = await FirebaseFirestore.instance
+          .collection('users')
+          .where('regNo', isEqualTo: searchQuery)
+          .get();
+
+      // If regNo not found, search by name (case-insensitive fallback)
+      if (q.docs.isEmpty) {
+        q = await FirebaseFirestore.instance
+            .collection('users')
+            .where('name', isGreaterThanOrEqualTo: searchQuery)
+            .where('name', isLessThan: searchQuery + 'z')
+            .get();
+      }
+
+      if (q.docs.isEmpty) {
+        await ErrorLogger.logError(
+          errorName: 'StudentNotFound',
+          message: 'Search query: $searchQuery',
+          location: 'StaffDashboard._search()',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Student not found")),
+          );
+        }
+        return;
+      }
+
+      // If multiple matches found, show selection dialog
+      if (q.docs.length > 1) {
+        if (!mounted) return;
+        final selected = await showDialog<DocumentSnapshot>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Multiple Students Found"),
+            content: SizedBox(
+              width: 300,
+              child: ListView.builder(
+                itemCount: q.docs.length,
+                itemBuilder: (context, i) {
+                  final data = q.docs[i].data();
+                  final name = data['name'] ?? 'Unknown';
+                  final regNo = data['regNo'] ?? 'N/A';
+                  final batch = data['batch'] ?? 'N/A';
+                  return ListTile(
+                    title: Text(name),
+                    subtitle: Text('RegNo: $regNo | Batch: $batch'),
+                    onTap: () => Navigator.pop(context, q.docs[i]),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        if (selected == null) return;
+        var data = selected.data() as Map<String, dynamic>?;
+        if (data == null) return;
+        
+        // Check batch permission
+        if (_staffBatch != null && data['batch']?.toString() != _staffBatch) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Student not in your batch (Batch $_staffBatch)"),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        
+        setState(() => _ctrls.forEach((k, v) => v.text = (data[k] ?? 0).toString()));
+      } else {
+        var data = q.docs.first.data() as Map<String, dynamic>?
+;
+        if (data == null) return;
+        
+        // Check if student belongs to this staff's batch
+        if (_staffBatch != null && data['batch']?.toString() != _staffBatch) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Student not in your batch (Batch $_staffBatch)"),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        
+        setState(() => _ctrls.forEach((k, v) => v.text = (data[k] ?? 0).toString()));
+      }
+    } catch (e) {
+      await ErrorLogger.logError(
+        errorName: 'SearchError',
+        message: e.toString(),
+        location: 'StaffDashboard._search()',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Search error: $e")),
+        );
+      }
     }
   }
 
   void _update() async {
     setState(() => _isSaving = true);
-    Map<String, int> updates = {};
-    Map<String, int> currentLimits = _getLimits();
-    bool isInvalid = false;
-    String errorField = "";
+    try {
+      Map<String, int> updates = {};
+      Map<String, int> currentLimits = _getLimits();
+      bool isInvalid = false;
+      String errorField = "";
 
-    _ctrls.forEach((k, v) {
-      int val = int.tryParse(v.text) ?? 0;
-      if (val > (currentLimits[k] ?? 0)) { isInvalid = true; errorField = k.toUpperCase(); }
-      updates[k] = val;
-    });
+      _ctrls.forEach((k, v) {
+        int val = int.tryParse(v.text) ?? 0;
+        if (val > (currentLimits[k] ?? 0)) { isInvalid = true; errorField = k.toUpperCase(); }
+        updates[k] = val;
+      });
 
-    if (isInvalid) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds point limit!"), backgroundColor: Colors.red));
+      if (isInvalid) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $errorField exceeds point limit!"), backgroundColor: Colors.red));
+        setState(() => _isSaving = false);
+        return;
+      }
+
+      var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
+      if (q.docs.isNotEmpty) {
+        await q.docs.first.reference.update(updates);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated Successfully!")));
+      }
+    } catch (e) {
+      await ErrorLogger.logError(
+        errorName: 'UpdateError',
+        message: e.toString(),
+        location: 'StaffDashboard._update()',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Update error: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
       setState(() => _isSaving = false);
-      return;
     }
-
-    var q = await FirebaseFirestore.instance.collection('users').where('regNo', isEqualTo: _reg.text.trim()).get();
-    if (q.docs.isNotEmpty) {
-      await q.docs.first.reference.update(updates);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Marks Updated Successfully!")));
-    }
-    setState(() => _isSaving = false);
   }
 
   // --- OPEN VERIFICATION PAGE (NEW UI) ---
   void _openVerificationPage() {
     Navigator.push(context, MaterialPageRoute(
-      builder: (_) => VerificationPage(activeYear: activeYear)
+      builder: (_) => VerificationPage(
+        activeYear: activeYear,
+      ),
     ));
   }
 
@@ -1498,7 +2260,16 @@ class _StaffDashboardState extends State<StaffDashboard> {
         initialChildSize: 0.9,
         expand: false,
         builder: (_, controller) => StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+          stream: _staffBatch != null
+              ? FirebaseFirestore.instance
+                  .collection('users')
+                  .where('role', isEqualTo: 'student')
+                  .where('batch', isEqualTo: _staffBatch)
+                  .snapshots()
+              : FirebaseFirestore.instance
+                  .collection('users')
+                  .where('role', isEqualTo: 'student')
+                  .snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
@@ -1644,8 +2415,23 @@ class _StaffDashboardState extends State<StaffDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(child: Text(s['name'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-                Text("${s['score']} EP", style: const TextStyle(fontSize: 11)),
-                SizedBox(width: 50, child: Text("${p.toStringAsFixed(1)}%", textAlign: TextAlign.center, style: const TextStyle(fontSize: 10))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade700, width: 2),
+                  ),
+                  child: Text("${s['score']} EP", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.black)),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text("${p.toStringAsFixed(1)}%", textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.black)),
+                ),
                 Chip(label: Text(ok ? "ELIGIBLE" : "LOCKED", style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)), 
                   backgroundColor: ok ? Colors.green : Colors.red, labelStyle: const TextStyle(color: Colors.white))
               ],
@@ -1660,11 +2446,47 @@ class _StaffDashboardState extends State<StaffDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("CIT ECE Staff Portal"), actions: [
+        IconButton(
+          icon: const Icon(Icons.lock),
+          onPressed: _changePassword,
+          tooltip: 'Change Password',
+        ),
         IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())))
       ]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
+          // NEW: Batch Info Banner
+          if (_batchLoaded)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _staffBatch != null ? Colors.blue.shade50 : Colors.orange.shade50,
+                border: Border.all(color: _staffBatch != null ? Colors.blue : Colors.orange),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _staffBatch != null ? Icons.check_circle : Icons.info,
+                    color: _staffBatch != null ? Colors.blue : Colors.orange,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _staffBatch != null
+                          ? "Viewing Batch $_staffBatch students only"
+                          : "You are not assigned to any batch. Contact admin.",
+                      style: TextStyle(
+                        color: _staffBatch != null ? Colors.blue.shade800 : Colors.orange.shade800,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 15),
           // DROPDOWN WITH NEW SEMESTER LABELS
           DropdownButton<String>(
             value: activeYear, 
@@ -1861,7 +2683,12 @@ class _StudentVerificationPageState extends State<StudentVerificationPage> {
 // --- VERIFICATION PAGE (NEW UI WITH TABS) ---
 class VerificationPage extends StatefulWidget {
   final String activeYear;
-  const VerificationPage({super.key, required this.activeYear});
+  final String? staffBatch;
+  const VerificationPage({
+    super.key,
+    required this.activeYear,
+    this.staffBatch,
+  });
 
   @override
   State<VerificationPage> createState() => _VerificationPageState();
@@ -2037,7 +2864,7 @@ class _VerificationPageState extends State<VerificationPage> with SingleTickerPr
                           children: [
                             Text(student['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                             const SizedBox(height: 4),
-                            Text("${student['score']} EP • ${percentage.toStringAsFixed(1)}%", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text("${student['score']} EP • ${percentage.toStringAsFixed(1)}%", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.blue.shade800)),
                           ],
                         ),
                       ),
@@ -2113,7 +2940,16 @@ class _VerificationPageState extends State<VerificationPage> with SingleTickerPr
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').snapshots(),
+              stream: widget.staffBatch != null
+                  ? FirebaseFirestore.instance
+                      .collection('users')
+                      .where('role', isEqualTo: 'student')
+                      .where('batch', isEqualTo: widget.staffBatch)
+                      .snapshots()
+                  : FirebaseFirestore.instance
+                      .collection('users')
+                      .where('role', isEqualTo: 'student')
+                      .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
