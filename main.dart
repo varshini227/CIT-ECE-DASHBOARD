@@ -659,16 +659,13 @@ const SizedBox(height: 20),
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  // ── Original state ──────────────────────────────────────────
   String filterYear = "SIXTH SEMESTER";
   bool showTable = false;
   String currentViewMode = "admin";
- 
-  // ── Batch state (was already in your code) ──────────────────
-  String selectedBatch = "26";
- 
+  String selectedBatch = "25";
+
   // ════════════════════════════════════════════════════════════
-  // ORIGINAL: Add Batch Dialog — UNCHANGED
+  // Add Batch Dialog
   // ════════════════════════════════════════════════════════════
   void _showAddBatchDialog() {
     TextEditingController batchController = TextEditingController();
@@ -704,28 +701,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
     );
   }
- 
+
   // ════════════════════════════════════════════════════════════
-  // ORIGINAL: Export to CSV — UNCHANGED
+  // Export to CSV
   // ════════════════════════════════════════════════════════════
   void _exportToCSV(List<Map<String, dynamic>> students) {
     List<List<dynamic>> rows = [];
     rows.add(["Register No", "Name", "Section", "Batch", "Total EP"]);
- 
     for (var s in students) {
       rows.add([s['regNo'], s['name'], s['section'], selectedBatch, s['score']]);
     }
- 
     String csvData = const ListToCsvConverter().convert(rows);
     final bytes = Uri.encodeComponent(csvData);
     html.AnchorElement(href: "data:text/csv;charset=utf-8,$bytes")
       ..setAttribute("download", "ECE_Batch_${selectedBatch}_Report.csv")
       ..click();
   }
- // TEMPORARY — remove this button after running cleanup once
 
   // ════════════════════════════════════════════════════════════
-  // ORIGINAL: Cumulative Point Summation — UNCHANGED
+  // Cumulative Point Summation
   // ════════════════════════════════════════════════════════════
   int _calculateCumulativePoints(Map<String, dynamic> d, String filter) {
     int s2 = _sum(d, sem2Limits);
@@ -733,14 +727,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     int s4 = _sum(d, sem4Limits);
     int s5 = _sum(d, sem5Limits);
     int s6 = _sum(d, sem6Limits);
- 
     if (filter == "First Year") return s2;
     if (filter == "THIRD SEMESTER") return s2 + s3;
     if (filter == "FOURTH SEMESTER") return s2 + s3 + s4;
     if (filter == "FIFTH SEMESTER") return s2 + s3 + s4 + s5;
     return s2 + s3 + s4 + s5 + s6;
   }
- 
+
   int _sum(Map<String, dynamic> d, Map<String, int> l) {
     int t = 0;
     l.forEach((k, _) {
@@ -749,18 +742,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
     });
     return t;
   }
- 
+
   // ════════════════════════════════════════════════════════════
-  // ★ NEW ADDITION 1: Batch Selector Chips
-  //   Streams live from Firestore 'batches' collection.
-  //   Tapping a chip sets [selectedBatch].
+  // Batch Selector Chips
   // ════════════════════════════════════════════════════════════
   Widget _buildBatchSelector() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('batches')
           .where('active', isEqualTo: true)
-          .orderBy('createdAt', descending: true)
+          .orderBy('code')
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -769,25 +760,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
             child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
           );
         }
- 
         final batches = snapshot.data!.docs;
- 
         if (batches.isEmpty) {
           return const Text(
             "No batches yet. Use the + button to create one.",
             style: TextStyle(color: Colors.grey, fontSize: 12),
           );
         }
- 
+        // Sort batches by code in ascending numeric order
+        final sortedBatches = List.from(batches)
+          ..sort((a, b) {
+            final codeA = int.tryParse(a['code']?.toString() ?? '0') ?? 0;
+            final codeB = int.tryParse(b['code']?.toString() ?? '0') ?? 0;
+            return codeA.compareTo(codeB);
+          });
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
-            children: batches.map((doc) {
+            children: sortedBatches.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final code = data['code']?.toString() ?? doc.id;
               final label = data['name']?.toString() ?? "Batch $code";
               final isSelected = selectedBatch == code;
- 
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
@@ -819,142 +813,29 @@ class _AdminDashboardState extends State<AdminDashboard> {
       },
     );
   }
-  // ONE-TIME CLEANUP: Remove previous_marks from all student docs
-Future<void> _cleanupPreviousMarks() async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text("Cleanup Confirmation"),
-      content: const Text(
-        "This will permanently delete the 'previous_marks' field "
-        "from ALL student documents.\n\n"
-        "Root level EP scores will NOT be touched.\n\n"
-        "Run this only ONCE. Are you sure?",
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text("Cancel"),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text("Yes, Clean Up"),
-        ),
-      ],
-    ),
-  );
 
-  if (confirmed != true) return;
-
-  // Show progress dialog
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => const AlertDialog(
-      content: Row(
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(width: 20),
-          Text("Cleaning up..."),
-        ],
-      ),
-    ),
-  );
-
-  try {
-    // Fetch all student documents
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .where('role', isEqualTo: 'student')
-        .get();
-
-    int cleaned = 0;
-    int skipped = 0;
-
-    // Process in batches of 500 (Firestore batch limit)
-    List<QueryDocumentSnapshot> docs = snapshot.docs;
-    for (int i = 0; i < docs.length; i += 400) {
-      final batchGroup = docs.sublist(
-        i,
-        i + 400 > docs.length ? docs.length : i + 400,
-      );
-
-      final batch = FirebaseFirestore.instance.batch();
-
-      for (var doc in batchGroup) {
-        final data = doc.data() as Map<String, dynamic>;
-
-        if (data.containsKey('previous_marks')) {
-          // Delete ONLY the previous_marks field
-          batch.update(doc.reference, {
-            'previous_marks': FieldValue.delete(),
-          });
-          cleaned++;
-        } else {
-          skipped++;
-        }
-      }
-
-      await batch.commit();
-    }
-
-    // Close progress dialog
-    Navigator.pop(context);
-
-    // Show result
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          "Cleanup done! $cleaned docs cleaned, $skipped already clean.",
-        ),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 5),
-      ),
-    );
-  } catch (e) {
-    Navigator.pop(context); // close progress dialog
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Cleanup failed: $e"),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-}
- 
   // ════════════════════════════════════════════════════════════
-  // ★ NEW ADDITION 2: Upload Students from CSV
-  //   Expected CSV columns: regNo, name, section
-  //   Header row is auto-skipped. Batch tagged from [selectedBatch].
-  //   Uses batch writes for efficiency & atomicity.
+  // Upload Students from CSV
   // ════════════════════════════════════════════════════════════
   Future<void> _uploadStudentsFromCSV() async {
     try {
-      // 1. Let user pick a CSV file
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
- 
       final bytes = result.files.first.bytes!;
       final csvStr = utf8.decode(bytes);
       final rows = const CsvToListConverter().convert(csvStr, eol: '\n');
- 
       if (rows.length < 2) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("CSV has no data rows.")),
         );
         return;
       }
- 
-      // 2. Parse headers (case-insensitive)
       final headers = rows.first.map((e) => e.toString().trim().toLowerCase()).toList();
       final dataRows = rows.skip(1).where((r) => r.length >= headers.length).toList();
- 
-      // 3. Confirm before writing
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -965,36 +846,23 @@ Future<void> _cleanupPreviousMarks() async {
             "Columns detected: ${headers.join(', ')}",
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text("Upload"),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Upload")),
           ],
         ),
       );
- 
       if (confirmed != true) return;
- 
-      // 4. Batch write to Firestore
       final firestoreBatch = FirebaseFirestore.instance.batch();
       int count = 0;
- 
       for (final row in dataRows) {
         final Map<String, String> rowMap = {};
         for (int i = 0; i < headers.length; i++) {
           rowMap[headers[i]] = row[i].toString().trim();
         }
- 
         final regNo = rowMap['regno'] ?? rowMap['reg no'] ?? rowMap['reg_no'] ?? '';
         final name = rowMap['name'] ?? '';
         final section = rowMap['section'] ?? 'Sec 1';
- 
-        if (regNo.isEmpty || name.isEmpty) continue; // skip malformed rows
- 
+        if (regNo.isEmpty || name.isEmpty) continue;
         final docRef = FirebaseFirestore.instance.collection('users').doc();
         firestoreBatch.set(docRef, {
           'regNo': regNo,
@@ -1003,48 +871,258 @@ Future<void> _cleanupPreviousMarks() async {
           'batch': selectedBatch,
           'role': 'student',
           'createdAt': FieldValue.serverTimestamp(),
-          // EP fields default to 0 — staff fill these in later
         });
         count++;
       }
- 
       await firestoreBatch.commit();
- 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("$count students uploaded to Batch $selectedBatch ✓")),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Upload failed: $e"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // ★ TEMPORARY: Attach Batch to Existing Students
+  //   REMOVE this method + button after running once
+  // ════════════════════════════════════════════════════════════
+  Future<void> _attachBatchToStudents() async {
+    final TextEditingController batchInput =
+        TextEditingController(text: selectedBatch);
+
+    final confirmedBatch = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Assign Batch to Existing Students"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "This will add the 'batch' field to all student documents "
+              "that don't have one yet.\n\nEnter the batch code to assign:",
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: batchInput,
+              decoration: const InputDecoration(
+                labelText: "Batch Code",
+                hintText: "e.g. 26",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800),
+            onPressed: () => Navigator.pop(ctx, batchInput.text.trim()),
+            child: const Text("Assign"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmedBatch == null || confirmedBatch.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Confirm Batch Assignment"),
+        content: Text(
+          "All students WITHOUT a batch field will be assigned:\n\n"
+          "Batch: $confirmedBatch\n\n"
+          "Students who already have a batch will be skipped safely.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Yes, Assign"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text("Assigning batch..."),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'student')
+          .get();
+
+      int assigned = 0;
+      int skipped = 0;
+
+      List<QueryDocumentSnapshot> docs = snapshot.docs;
+      for (int i = 0; i < docs.length; i += 400) {
+        final batchGroup = docs.sublist(
+          i,
+          i + 400 > docs.length ? docs.length : i + 400,
+        );
+        final firestoreBatch = FirebaseFirestore.instance.batch();
+        for (var doc in batchGroup) {
+          final data = doc.data() as Map<String, dynamic>;
+          if (!data.containsKey('batch') ||
+              data['batch'] == null ||
+              data['batch'].toString().isEmpty) {
+            firestoreBatch.update(doc.reference, {'batch': confirmedBatch});
+            assigned++;
+          } else {
+            skipped++;
+          }
+        }
+        await firestoreBatch.commit();
+      }
+
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Upload failed: $e"),
+          content: Text(
+            "$assigned students assigned to Batch $confirmedBatch. "
+            "$skipped already had a batch (skipped).",
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed: $e"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // ★ MIGRATE BATCH 26 → 25 (FIX UPLOADED MISTAKE)
+  // ════════════════════════════════════════════════════════════
+  Future<void> _migrateBatchStudents() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("⚠️ Migrate Batch 26 → 25"),
+        content: const Text(
+          "This will move ALL students from Batch 26 to Batch 25.\n\n"
+          "This action cannot be easily undone.\n\n"
+          "Are you sure?",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Yes, Migrate"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text("Migrating batch 26 → 25..."),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('batch', isEqualTo: '26')
+          .get();
+
+      int migrated = 0;
+
+      List<QueryDocumentSnapshot> docs = snapshot.docs;
+      for (int i = 0; i < docs.length; i += 400) {
+        final batchGroup = docs.sublist(
+          i,
+          i + 400 > docs.length ? docs.length : i + 400,
+        );
+        final firestoreBatch = FirebaseFirestore.instance.batch();
+        for (var doc in batchGroup) {
+          firestoreBatch.update(doc.reference, {'batch': '25'});
+          migrated++;
+        }
+        await firestoreBatch.commit();
+      }
+
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "✓ Successfully migrated $migrated students from Batch 26 to Batch 25",
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Migration failed: $e"),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
- 
+
   // ════════════════════════════════════════════════════════════
-  // ORIGINAL: build() — UNCHANGED except the two new UI blocks
-  //           inserted before the DropdownButton (marked ★)
+  // build()
   // ════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
-    // --- GOD MODE ROUTING --- (ORIGINAL, UNCHANGED)
     if (currentViewMode == "staff") return _impersonate(const StaffDashboard());
-    if (currentViewMode == "student") {
-      // Logic to find a real ID is handled inside the StreamBuilder below
-    }
- 
-    double maxPoints = filterYear == "First Year"
-        ? 40
-        : filterYear == "THIRD SEMESTER"
-            ? 80
-            : filterYear == "FOURTH SEMESTER"
-                ? 120
-                : filterYear == "FIFTH SEMESTER"
-                    ? 160
-                    : 200;
- 
+    if (currentViewMode == "student") {}
+
+    double maxPoints = filterYear == "First Year" ? 40
+        : filterYear == "THIRD SEMESTER" ? 80
+        : filterYear == "FOURTH SEMESTER" ? 120
+        : filterYear == "FIFTH SEMESTER" ? 160 : 200;
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('users')
@@ -1054,8 +1132,7 @@ Future<void> _cleanupPreviousMarks() async {
         if (!snapshot.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
- 
-        // ── ORIGINAL data processing — UNCHANGED ──────────────
+
         double s1Sum = 0, s2Sum = 0;
         int s1Count = 0, s2Count = 0;
         String s1TopperName = "N/A", s2TopperName = "N/A";
@@ -1063,13 +1140,12 @@ Future<void> _cleanupPreviousMarks() async {
         List<Map<String, dynamic>> students = [];
         double batchHighest = 0;
         String? firstStudentId;
- 
+
         for (var doc in snapshot.data!.docs) {
           var data = doc.data() as Map<String, dynamic>;
           int score = _calculateCumulativePoints(data, filterYear);
           if (score > batchHighest) batchHighest = score.toDouble();
           if (firstStudentId == null) firstStudentId = doc.id;
- 
           var studentInfo = {
             'name': data['name'] ?? "Unknown",
             'regNo': data['regNo'] ?? "N/A",
@@ -1077,34 +1153,24 @@ Future<void> _cleanupPreviousMarks() async {
             'section': data['section'] ?? "Sec 1",
           };
           students.add(studentInfo);
- 
           if (studentInfo['section'] == "Sec 1") {
-            s1Sum += score;
-            s1Count++;
-            if (score > s1TopperScore) {
-              s1TopperScore = score;
-              s1TopperName = studentInfo['name'] as String;
-            }
+            s1Sum += score; s1Count++;
+            if (score > s1TopperScore) { s1TopperScore = score; s1TopperName = studentInfo['name'] as String; }
           } else {
-            s2Sum += score;
-            s2Count++;
-            if (score > s2TopperScore) {
-              s2TopperScore = score;
-              s2TopperName = studentInfo['name'] as String;
-            }
+            s2Sum += score; s2Count++;
+            if (score > s2TopperScore) { s2TopperScore = score; s2TopperName = studentInfo['name'] as String; }
           }
         }
- 
+
         if (currentViewMode == "student") {
           return _impersonate(StudentDashboard(uid: firstStudentId ?? "sample_uid"));
         }
- 
+
         double s1Avg = s1Count > 0 ? s1Sum / s1Count : 0;
         double s2Avg = s2Count > 0 ? s2Sum / s2Count : 0;
         String leadingSection = s1Avg > s2Avg ? "SECTION 1" : "SECTION 2";
         double winPercent = ((s1Avg > s2Avg ? s1Avg : s2Avg) / maxPoints) * 100;
-        // ── end ORIGINAL data processing ──────────────────────
- 
+
         return Scaffold(
           appBar: AppBar(
             title: const Text("Admin Batch Analytics"),
@@ -1121,51 +1187,43 @@ Future<void> _cleanupPreviousMarks() async {
               IconButton(
                 icon: const Icon(Icons.logout),
                 onPressed: () => Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                ),
+                  context, MaterialPageRoute(builder: (_) => const LoginPage())),
               ),
             ],
           ),
- 
-          // ORIGINAL FAB — UNCHANGED
           floatingActionButton: FloatingActionButton(
             onPressed: _showAddBatchDialog,
             backgroundColor: Colors.blue.shade900,
             child: const Icon(Icons.add_to_photos, color: Colors.white),
           ),
- 
           body: ListView(
             padding: const EdgeInsets.all(20),
             children: [
- 
-              // ── ORIGINAL: Leading Section Card ─────────────────
+
+              // Leading Section Card
               Card(
                 color: Colors.indigo.shade800,
                 child: ListTile(
                   leading: const Icon(Icons.workspace_premium, color: Colors.amber, size: 40),
-                  title: Text(
-                    "LEADING: $leadingSection",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    "Avg Achievement: ${winPercent.toStringAsFixed(1)}%",
-                    style: const TextStyle(color: Colors.white70),
-                  ),
+                  title: Text("LEADING: $leadingSection",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: Text("Avg Achievement: ${winPercent.toStringAsFixed(1)}%",
+                      style: const TextStyle(color: Colors.white70)),
                 ),
               ),
               const SizedBox(height: 25),
- 
-              // ★ NEW: Batch Selector chips (live from Firestore)
-              const Text(
-                "SELECT BATCH",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-              ),
+
+              // Batch Selector chips
+              const Text("SELECT BATCH",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
               const SizedBox(height: 8),
-              _buildBatchSelector(),
+              SizedBox(
+                height: 50,
+                child: _buildBatchSelector(),
+              ),
               const SizedBox(height: 12),
- 
-              // ★ NEW: Upload Students CSV button
+
+              // Upload Students CSV
               Align(
                 alignment: Alignment.centerRight,
                 child: ElevatedButton.icon(
@@ -1178,29 +1236,33 @@ Future<void> _cleanupPreviousMarks() async {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+
+              // ★ TEMPORARY — remove after running once
+              ElevatedButton.icon(
+                onPressed: _attachBatchToStudents,
+                icon: const Icon(Icons.label_outline),
+                label: const Text("ATTACH BATCH TO EXISTING STUDENTS"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade700,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+              ),
               const SizedBox(height: 16),
- 
-              // ── ORIGINAL: Semester Selector ────────────────────
+              // ★ END TEMPORARY
+
+              // Semester Selector
               DropdownButton<String>(
                 value: filterYear,
                 isExpanded: true,
-                items: [
-                  "First Year",
-                  "THIRD SEMESTER",
-                  "FOURTH SEMESTER",
-                  "FIFTH SEMESTER",
-                  "SIXTH SEMESTER",
-                ]
-                    .map((y) => DropdownMenuItem(value: y, child: Text(y)))
-                    .toList(),
-                onChanged: (v) => setState(() {
-                  filterYear = v!;
-                  showTable = false;
-                }),
+                items: ["First Year", "THIRD SEMESTER", "FOURTH SEMESTER", "FIFTH SEMESTER", "SIXTH SEMESTER"]
+                    .map((y) => DropdownMenuItem(value: y, child: Text(y))).toList(),
+                onChanged: (v) => setState(() { filterYear = v!; showTable = false; }),
               ),
               const SizedBox(height: 25),
- 
-              // ── ORIGINAL: Section Topper Gallery ───────────────
+
+              // Section Toppers
               const Text("SECTION TOPPERS", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
               Row(children: [
@@ -1209,39 +1271,29 @@ Future<void> _cleanupPreviousMarks() async {
                 Expanded(child: _performerCard("SEC 2 TOPPER", s2TopperName, s2TopperScore)),
               ]),
               const SizedBox(height: 30),
- 
-              // ── ORIGINAL: Bar Chart ─────────────────────────────
+
+              // Bar Chart
               const Text("SECTION ACHIEVEMENT RATIO (%)", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
               _buildBarChart(s1Avg, s2Avg, maxPoints),
               const Divider(height: 50),
- 
-              // ── ORIGINAL: Verification Table Toggle ────────────
+
+              // Verification Table Toggle
               ElevatedButton.icon(
                 onPressed: () => setState(() => showTable = !showTable),
                 icon: Icon(showTable ? Icons.visibility_off : Icons.analytics),
                 label: Text(showTable ? "HIDE DATA TABLE" : "GENERATE VERIFICATION TABLE"),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade800,
-                  foregroundColor: Colors.white,
-                ),
+                    backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white),
               ),
- 
+
               if (showTable) ...[
                 const SizedBox(height: 20),
-                _buildSectionTable(
-                  "SECTION 1 VERIFICATION",
-                  students.where((s) => s['section'] == "Sec 1").toList(),
-                  batchHighest,
-                  Colors.blue,
-                ),
+                _buildSectionTable("SECTION 1 VERIFICATION",
+                    students.where((s) => s['section'] == "Sec 1").toList(), batchHighest, Colors.blue),
                 const SizedBox(height: 30),
-                _buildSectionTable(
-                  "SECTION 2 VERIFICATION",
-                  students.where((s) => s['section'] == "Sec 2").toList(),
-                  batchHighest,
-                  Colors.orange,
-                ),
+                _buildSectionTable("SECTION 2 VERIFICATION",
+                    students.where((s) => s['section'] == "Sec 2").toList(), batchHighest, Colors.orange),
               ],
             ],
           ),
@@ -1249,17 +1301,16 @@ Future<void> _cleanupPreviousMarks() async {
       },
     );
   }
- 
+
   // ════════════════════════════════════════════════════════════
-  // ORIGINAL: UI Component helpers — ALL UNCHANGED
+  // UI Component helpers — ALL UNCHANGED
   // ════════════════════════════════════════════════════════════
- 
+
   Widget _impersonate(Widget child) => Stack(
         children: [
           child,
           Positioned(
-            bottom: 20,
-            right: 20,
+            bottom: 20, right: 20,
             child: FloatingActionButton.extended(
               onPressed: () => setState(() => currentViewMode = "admin"),
               label: const Text("Exit Preview"),
@@ -1269,58 +1320,48 @@ Future<void> _cleanupPreviousMarks() async {
           ),
         ],
       );
- 
+
   Widget _buildBarChart(double s1, double s2, double max) => SizedBox(
         height: 180,
-        child: BarChart(
-          BarChartData(
-            maxY: max,
-            barGroups: [
-              BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1, color: Colors.blue, width: 40)]),
-              BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2, color: Colors.orange, width: 40)]),
-            ],
-            titlesData: FlTitlesData(
-              bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
-                  showTitles: true,
-                  getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2"),
-                ),
+        child: BarChart(BarChartData(
+          maxY: max,
+          barGroups: [
+            BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: s1, color: Colors.blue, width: 40)]),
+            BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: s2, color: Colors.orange, width: 40)]),
+          ],
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (v, m) => Text(v == 0 ? "SEC 1" : "SEC 2"),
               ),
             ),
           ),
+        )),
+      );
+
+  Widget _buildSectionTable(String title, List<Map<String, dynamic>> data, double topper, Color color) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+        const SizedBox(height: 10),
+        DataTable(
+          headingRowColor: MaterialStateProperty.all(color.withOpacity(0.1)),
+          columns: const [
+            DataColumn(label: Text("Name")),
+            DataColumn(label: Text("EP")),
+            DataColumn(label: Text("%")),
+          ],
+          rows: data.map((s) {
+            double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
+            return DataRow(cells: [
+              DataCell(Text(s['name'], style: const TextStyle(fontSize: 11))),
+              DataCell(Text("${s['score']}")),
+              DataCell(Text("${p.toStringAsFixed(1)}%")),
+            ]);
+          }).toList(),
         ),
-      );
- 
-  Widget _buildSectionTable(
-    String title,
-    List<Map<String, dynamic>> data,
-    double topper,
-    Color color,
-  ) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
-          const SizedBox(height: 10),
-          DataTable(
-            headingRowColor: MaterialStateProperty.all(color.withOpacity(0.1)),
-            columns: const [
-              DataColumn(label: Text("Name")),
-              DataColumn(label: Text("EP")),
-              DataColumn(label: Text("%")),
-            ],
-            rows: data.map((s) {
-              double p = topper > 0 ? (s['score'] / topper) * 100 : 0;
-              return DataRow(cells: [
-                DataCell(Text(s['name'], style: const TextStyle(fontSize: 11))),
-                DataCell(Text("${s['score']}")),
-                DataCell(Text("${p.toStringAsFixed(1)}%")),
-              ]);
-            }).toList(),
-          ),
-        ],
-      );
- 
+      ]);
+
   Widget _performerCard(String title, String name, int score) => Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
@@ -1328,19 +1369,14 @@ Future<void> _cleanupPreviousMarks() async {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.amber),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)),
-            Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-            Text("$score EP", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
-          ],
-        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)),
+          Text(name, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+          Text("$score EP", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+        ]),
       );
 }
- 
-
-
 // --- STAFF DASHBOARD ---
 class StaffDashboard extends StatefulWidget {
   const StaffDashboard({super.key});
